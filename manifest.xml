@@ -11,12 +11,12 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Add TransitChat to Email"/>
   <Description DefaultValue="Forward emails or add TransitChat in CC."/>
-  <IconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
-  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-128.png"/>
+  <IconUrl DefaultValue="https://electricsupply-addin.vercel.app/assets/icon-64.png"/>
+  <HighResolutionIconUrl DefaultValue="https://electricsupply-addin.vercel.app/assets/icon-128.png"/>
   <SupportUrl DefaultValue="https://www.contoso.com/help"/>
   <AppDomains>
     <AppDomain>https://www.contoso.com</AppDomain>
-    <AppDomain>https://localhost:3000/</AppDomain>
+    <AppDomain>https://electricsupply-addin.vercel.app/</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Mailbox"/>
@@ -29,7 +29,7 @@
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://localhost:3000"/>
+        <SourceLocation DefaultValue="https://electricsupply-addin.vercel.app"/>
         <RequestedHeight>250</RequestedHeight>
       </DesktopSettings>
     </Form>
@@ -82,14 +82,14 @@
 
       <Resources>
         <bt:Images>
-          <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3000/ssets/icon-16.png"/>
-          <bt:Image id="Icon.32x32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
-          <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
+          <bt:Image id="Icon.16x16" DefaultValue="https://electricsupply-addin.vercel.app/ssets/icon-16.png"/>
+          <bt:Image id="Icon.32x32" DefaultValue="https://electricsupply-addin.vercel.app/assets/icon-32.png"/>
+          <bt:Image id="Icon.80x80" DefaultValue="https://electricsupply-addin.vercel.app/assets/icon-80.png"/>
         </bt:Images>
 
         <bt:Urls>
-          <bt:Url id="Commands.Url" DefaultValue="https://localhost:3000/commands.html"/>
-          <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
+          <bt:Url id="Commands.Url" DefaultValue="https://electricsupply-addin.vercel.app/commands.html"/>
+          <bt:Url id="Taskpane.Url" DefaultValue="https://electricsupply-addin.vercel.app/taskpane.html"/>
         </bt:Urls>
 
         <bt:ShortStrings>

@@ -15,7 +15,7 @@
       "name": "Outlook Desktop (Edge Legacy)",
       "type": "office-addin",
       "request": "attach",
-      "url": "https://localhost:3000/taskpane.html?_host_Info=Outlook$Win32$16.01$en-US$$$$0",
+      "url": "https://electricsupply-addin.vercel.app/taskpane.html?_host_Info=Outlook$Win32$16.01$en-US$$$$0",
       "port": 9222,
       "timeout": 600000,
       "webRoot": "${workspaceRoot}",

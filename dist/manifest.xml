@@ -29,7 +29,7 @@
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://localhost:3000"/>
+        <SourceLocation DefaultValue="https://electricsupply-addin.vercel.app"/>
         <RequestedHeight>250</RequestedHeight>
       </DesktopSettings>
     </Form>
