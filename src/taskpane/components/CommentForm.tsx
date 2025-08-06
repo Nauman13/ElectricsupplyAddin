@@ -86,6 +86,61 @@ const CommentForm: React.FC = () => {
     return tokenResponse.accessToken;
   };
 
+  const forwardOriginalEmailToMentionedUsers = async () => {
+    if (mentionedEmails.length === 0) return;
+
+    const token = await getAccessToken();
+
+    const encodedItemId = Office.context.mailbox.convertToRestId(
+      Office.context.mailbox.item.itemId,
+      Office.MailboxEnums.RestVersion.v2_0
+    );
+
+    try {
+      // Get message from Graph
+      const messageRes = await fetch(
+        `https://graph.microsoft.com/v1.0/me/messages/${encodedItemId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!messageRes.ok) {
+        console.error("Failed to get original message:", await messageRes.text());
+        return;
+      }
+
+      const message = await messageRes.json();
+      const graphMessageId = message.id;
+
+      // Forward message to each mentioned user with a notification comment
+      for (const email of mentionedEmails) {
+        await fetch(`https://graph.microsoft.com/v1.0/me/messages/${graphMessageId}/forward`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            comment: `Hi, you were mentioned in a comment on this email. Please review the original message below.`,
+            toRecipients: [
+              {
+                emailAddress: {
+                  address: email,
+                },
+              },
+            ],
+          }),
+        });
+        console.log(`Forwarded to ${email}`);
+      }
+    } catch (err) {
+      console.error("Error forwarding email:", err);
+    }
+  };
+
   const fetchUsers = async () => {
     try {
       const token = await getAccessToken();
@@ -176,48 +231,48 @@ const CommentForm: React.FC = () => {
     setMentionedEmails(emails);
   };
 
-  const sendEmailToMentionedUsers = async () => {
-    if (mentionedEmails.length === 0) return;
+  // const sendEmailToMentionedUsers = async () => {
+  //   if (mentionedEmails.length === 0) return;
 
-    const token = await getAccessToken();
+  //   const token = await getAccessToken();
 
-    Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
-      if (result.status === Office.AsyncResultStatus.Succeeded) {
-        const originalBody = result.value;
+  //   Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
+  //     if (result.status === Office.AsyncResultStatus.Succeeded) {
+  //       const originalBody = result.value;
 
-        const toRecipients = mentionedEmails.map((email) => ({
-          emailAddress: { address: email },
-        }));
+  //       const toRecipients = mentionedEmails.map((email) => ({
+  //         emailAddress: { address: email },
+  //       }));
 
-        const emailPayload = {
-          message: {
-            subject: "You’ve been mentioned in an Outlook conversation",
-            body: {
-              contentType: "HTML",
-              content: `
-                <p>Hello,</p>
-                <p>You were mentioned in a conversation. Here's the original email:</p>
-                <hr />
-                ${originalBody}
-                <p>Open your Outlook Add-in to reply or view further comments.</p>
-              `,
-            },
-            toRecipients,
-          },
-          saveToSentItems: true,
-        };
+  //       const emailPayload = {
+  //         message: {
+  //           subject: "You’ve been mentioned in an Outlook conversation",
+  //           body: {
+  //             contentType: "HTML",
+  //             content: `
+  //               <p>Hello,</p>
+  //               <p>You were mentioned in a conversation. Here's the original email:</p>
+  //               <hr />
+  //               ${originalBody}
+  //               <p>Open your Outlook Add-in to reply or view further comments.</p>
+  //             `,
+  //           },
+  //           toRecipients,
+  //         },
+  //         saveToSentItems: true,
+  //       };
 
-        await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(emailPayload),
-        });
-      }
-    });
-  };
+  //       await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+  //         method: "POST",
+  //         headers: {
+  //           Authorization: `Bearer ${token}`,
+  //           "Content-Type": "application/json",
+  //         },
+  //         body: JSON.stringify(emailPayload),
+  //       });
+  //     }
+  //   });
+  // };
 
   const handleSaveAndShare = async () => {
     if (!comment.trim()) {
@@ -229,7 +284,7 @@ const CommentForm: React.FC = () => {
     setTimeout(() => fetchCommentsFromSharePoint(), 1000);
 
     if (mentionedEmails.length > 0) {
-      await sendEmailToMentionedUsers();
+      await forwardOriginalEmailToMentionedUsers();
     }
 
     setComment("");
@@ -248,6 +303,7 @@ const CommentForm: React.FC = () => {
           overflowY: "auto",
         }}
       >
+        <h1>Comment History</h1>
         {commentHistory.length > 0 ? (
           commentHistory.map((c, index) => (
             <div
