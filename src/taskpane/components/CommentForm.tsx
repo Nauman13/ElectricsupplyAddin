@@ -17,22 +17,38 @@ const CommentForm: React.FC = () => {
   const [mentionedEmails, setMentionedEmails] = useState<string[]>([]);
   const [conversationId, setConversationId] = useState<string>("");
 
+  const waitForMailboxItem = (): Promise<void> => {
+    return new Promise((resolve) => {
+      const check = () => {
+        if (Office.context?.mailbox?.item) {
+          resolve();
+        } else {
+          setTimeout(check, 100); // keep checking every 100ms
+        }
+      };
+      check();
+    });
+  };
+
   useEffect(() => {
-    Office.onReady((info) => {
+    Office.onReady(async (info) => {
       if (info.host === Office.HostType.Outlook) {
-        Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
+        await waitForMailboxItem();
+        const item = Office.context.mailbox.item;
+
+        item.body.getAsync(Office.CoercionType.Html, async (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
             const bodyContent = result.value;
             const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
 
-            let convId = match?.[1] || Office.context.mailbox?.item?.conversationId;
+            let convId = match?.[1] || item.conversationId;
 
             if (convId) {
               setConversationId(convId);
               await fetchCommentsFromSharePoint(convId);
             }
           } else {
-            console.error("Failed to get email body:", result.error.message);
+            console.error("Failed to get body:", result.error);
           }
         });
       }
