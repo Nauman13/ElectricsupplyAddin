@@ -18,31 +18,30 @@ const CommentForm: React.FC = () => {
   const [conversationId, setConversationId] = useState<string>("");
 
   useEffect(() => {
-    Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
-      if (result.status === Office.AsyncResultStatus.Succeeded) {
-        const bodyContent = result.value;
-        const regex = /CONVERSATION_ID:([a-zA-Z0-9\-]+)/;
-        const match = bodyContent.match(regex);
+    Office.onReady((info) => {
+      if (info.host === Office.HostType.Outlook) {
+        Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            const bodyContent = result.value;
+            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
 
-        let convId = "";
+            let convId = match?.[1] || Office.context.mailbox?.item?.conversationId;
 
-        if (match && match[1]) {
-          convId = match[1];
-        } else if (Office.context.mailbox?.item?.conversationId) {
-          convId = Office.context.mailbox.item.conversationId;
-        }
-
-        if (convId) {
-          setConversationId(convId);
-          await fetchCommentsFromSharePoint(convId); // 💡 pass it explicitly here
-        }
+            if (convId) {
+              setConversationId(convId);
+              await fetchCommentsFromSharePoint(convId);
+            }
+          } else {
+            console.error("Failed to get email body:", result.error.message);
+          }
+        });
       }
     });
   }, []);
 
-  useEffect(() => {
-    if (conversationId) fetchCommentsFromSharePoint();
-  }, [conversationId]);
+  // useEffect(() => {
+  //   if (conversationId) fetchCommentsFromSharePoint();
+  // }, [conversationId]);
 
   useEffect(() => {
     fetchUsers();
