@@ -303,7 +303,6 @@ const CommentForm: React.FC = () => {
           overflowY: "auto",
         }}
       >
-        <h1>Comment History</h1>
         {commentHistory.length > 0 ? (
           commentHistory.map((c, index) => (
             <div
