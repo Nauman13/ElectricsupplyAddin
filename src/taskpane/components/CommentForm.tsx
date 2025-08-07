@@ -303,6 +303,7 @@ const CommentForm: React.FC = () => {
 
   return (
     <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
+      <h2>Email Comment</h2>
       <div
         style={{
           marginBottom: "1rem",
