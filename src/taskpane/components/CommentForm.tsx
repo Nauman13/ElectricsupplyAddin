@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { MentionsInput, Mention } from "react-mentions";
 import { PublicClientApplication } from "@azure/msal-browser";
 import { msalConfig } from "./msalConfig";
+import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner";
 
 // SharePoint Config
 const siteId = "8314c8ba-c25a-4a02-bf25-d6238949ac8f";
@@ -16,6 +17,8 @@ const CommentForm: React.FC = () => {
   const [people, setPeople] = useState<any[]>([]);
   const [mentionedEmails, setMentionedEmails] = useState<string[]>([]);
   const [conversationId, setConversationId] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(false);
+  const [sending, setSending] = useState<boolean>(false);
 
   const waitForMailboxItem = (): Promise<void> => {
     return new Promise((resolve) => {
@@ -34,6 +37,7 @@ const CommentForm: React.FC = () => {
     Office.onReady(async (info) => {
       if (info.host === Office.HostType.Outlook) {
         await waitForMailboxItem();
+        setLoading(true);
         const item = Office.context.mailbox.item;
 
         item.body.getAsync(Office.CoercionType.Html, async (result) => {
@@ -50,14 +54,11 @@ const CommentForm: React.FC = () => {
           } else {
             console.error("Failed to get body:", result.error);
           }
+          setLoading(false);
         });
       }
     });
   }, []);
-
-  // useEffect(() => {
-  //   if (conversationId) fetchCommentsFromSharePoint();
-  // }, [conversationId]);
 
   useEffect(() => {
     fetchUsers();
@@ -174,26 +175,33 @@ const CommentForm: React.FC = () => {
     const id = convId || conversationId;
     if (!id) return;
 
-    const token = await getAccessToken();
-    const emailIdValue = encodeURIComponent(id);
+    setLoading(true);
+    try {
+      const token = await getAccessToken();
+      const emailIdValue = encodeURIComponent(id);
 
-    const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
+      const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
 
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    if (!response.ok) {
-      console.error("Fetch comments failed:", await response.text());
-      return;
+      if (!response.ok) {
+        console.error("Fetch comments failed:", await response.text());
+        return;
+      }
+
+      const data = await response.json();
+      const comments = data.value
+        .map((item: any) => item.fields)
+        .sort((a, b) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime());
+
+      setCommentHistory(comments);
+    } catch (error) {
+      console.error("Error fetching comments:", error);
+    } finally {
+      setLoading(false);
     }
-
-    const data = await response.json();
-    const comments = data.value
-      .map((item: any) => item.fields)
-      .sort((a, b) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime());
-
-    setCommentHistory(comments);
   };
 
   const stripMentionsFromComment = (input: string): string => {
@@ -240,69 +248,32 @@ const CommentForm: React.FC = () => {
     setMentionedEmails(emails);
   };
 
-  // const sendEmailToMentionedUsers = async () => {
-  //   if (mentionedEmails.length === 0) return;
-
-  //   const token = await getAccessToken();
-
-  //   Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
-  //     if (result.status === Office.AsyncResultStatus.Succeeded) {
-  //       const originalBody = result.value;
-
-  //       const toRecipients = mentionedEmails.map((email) => ({
-  //         emailAddress: { address: email },
-  //       }));
-
-  //       const emailPayload = {
-  //         message: {
-  //           subject: "You’ve been mentioned in an Outlook conversation",
-  //           body: {
-  //             contentType: "HTML",
-  //             content: `
-  //               <p>Hello,</p>
-  //               <p>You were mentioned in a conversation. Here's the original email:</p>
-  //               <hr />
-  //               ${originalBody}
-  //               <p>Open your Outlook Add-in to reply or view further comments.</p>
-  //             `,
-  //           },
-  //           toRecipients,
-  //         },
-  //         saveToSentItems: true,
-  //       };
-
-  //       await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
-  //         method: "POST",
-  //         headers: {
-  //           Authorization: `Bearer ${token}`,
-  //           "Content-Type": "application/json",
-  //         },
-  //         body: JSON.stringify(emailPayload),
-  //       });
-  //     }
-  //   });
-  // };
-
   const handleSaveAndShare = async () => {
     if (!comment.trim()) {
       alert("Please add a comment before saving.");
       return;
     }
 
-    await saveCommentToSharePoint();
-    setTimeout(() => fetchCommentsFromSharePoint(), 1000);
+    setSending(true);
+    try {
+      await saveCommentToSharePoint();
+      await fetchCommentsFromSharePoint();
 
-    if (mentionedEmails.length > 0) {
-      await forwardOriginalEmailToMentionedUsers();
+      if (mentionedEmails.length > 0) {
+        await forwardOriginalEmailToMentionedUsers();
+      }
+
+      setComment("");
+      setMentionedEmails([]);
+    } catch (error) {
+      console.error("Error saving comment:", error);
+    } finally {
+      setSending(false);
     }
-
-    setComment("");
-    setMentionedEmails([]);
   };
 
   return (
     <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
-      <h2>Email Comment</h2>
       <div
         style={{
           marginBottom: "1rem",
@@ -311,9 +282,22 @@ const CommentForm: React.FC = () => {
           borderRadius: "6px",
           maxHeight: "450px",
           overflowY: "auto",
+          position: "relative",
+          minHeight: "100px",
         }}
       >
-        {commentHistory.length > 0 ? (
+        {loading ? (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              height: "100px",
+            }}
+          >
+            <Spinner size={SpinnerSize.medium} label="Loading comments..." />
+          </div>
+        ) : commentHistory.length > 0 ? (
           commentHistory.map((c, index) => (
             <div
               key={index}
@@ -433,16 +417,28 @@ const CommentForm: React.FC = () => {
 
       <button
         onClick={handleSaveAndShare}
+        disabled={sending}
         style={{
-          backgroundColor: "#0078D4",
+          backgroundColor: sending ? "#a0a0a0" : "#0078D4",
           color: "#fff",
           border: "none",
           padding: "10px 16px",
           borderRadius: "5px",
           float: "right",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          cursor: sending ? "not-allowed" : "pointer",
         }}
       >
-        Send
+        {sending ? (
+          <>
+            <Spinner size={SpinnerSize.xSmall} />
+            Sending...
+          </>
+        ) : (
+          "Send"
+        )}
       </button>
     </div>
   );
