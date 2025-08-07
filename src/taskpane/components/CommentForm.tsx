@@ -113,7 +113,7 @@ const CommentForm: React.FC = () => {
 
       const emailPayload = {
         message: {
-          subject: `FWD: ${subject}`,
+          subject: ` ${subject}`,
           body: {
             contentType: "HTML",
             content: `
