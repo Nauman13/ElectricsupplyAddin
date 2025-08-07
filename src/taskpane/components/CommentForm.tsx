@@ -91,54 +91,64 @@ const CommentForm: React.FC = () => {
 
     const token = await getAccessToken();
 
-    const encodedItemId = Office.context.mailbox.convertToRestId(
-      Office.context.mailbox.item.itemId,
-      Office.MailboxEnums.RestVersion.v2_0
-    );
-
-    try {
-      // Get message from Graph
-      const messageRes = await fetch(
-        `https://graph.microsoft.com/v1.0/me/messages/${encodedItemId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (!messageRes.ok) {
-        console.error("Failed to get original message:", await messageRes.text());
+    Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
+      if (result.status !== Office.AsyncResultStatus.Succeeded) {
+        console.error("Failed to get email body:", result.error);
         return;
       }
 
-      const message = await messageRes.json();
-      const graphMessageId = message.id;
+      let originalBody = result.value;
 
-      // Forward message to each mentioned user with a notification comment
-      for (const email of mentionedEmails) {
-        await fetch(`https://graph.microsoft.com/v1.0/me/messages/${graphMessageId}/forward`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            comment: `Hi, you were mentioned in a comment on this email. Please review the original message below.`,
-            toRecipients: [
-              {
-                emailAddress: {
-                  address: email,
-                },
-              },
-            ],
-          }),
-        });
-        console.log(`Forwarded to ${email}`);
+      // Add CONVERSATION_ID if not already present
+      if (!originalBody.includes("CONVERSATION_ID:")) {
+        originalBody += `<div style="display:none">CONVERSATION_ID:${conversationId}</div>`;
       }
-    } catch (err) {
-      console.error("Error forwarding email:", err);
-    }
+
+      const subject = Office.context.mailbox.item.subject;
+      const from = Office.context.mailbox.item.from?.emailAddress || "noreply@domain.com";
+
+      const toRecipients = mentionedEmails.map((email) => ({
+        emailAddress: { address: email },
+      }));
+
+      const emailPayload = {
+        message: {
+          subject: `FWD: ${subject}`,
+          body: {
+            contentType: "HTML",
+            content: `
+            <p>Hello,</p>
+            <p>You were mentioned in a conversation. Here's the original email:</p>
+            <hr />
+            <p><strong>From:</strong> ${from}</p>
+            <p><strong>Subject:</strong> ${subject}</p>
+            <hr />
+            ${originalBody}
+            <hr />
+            <p>You can open the Outlook Add-in to view and add comments.</p>
+          `,
+          },
+          toRecipients,
+        },
+        saveToSentItems: true,
+      };
+
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(emailPayload),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("Failed to send mail:", errText);
+      } else {
+        console.log("Successfully sent forward-style email to mentioned users.");
+      }
+    });
   };
 
   const fetchUsers = async () => {
