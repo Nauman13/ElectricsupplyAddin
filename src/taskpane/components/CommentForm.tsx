@@ -99,9 +99,8 @@ const CommentForm: React.FC = () => {
 
       let originalBody = result.value;
 
-      // Add CONVERSATION_ID if not already present
       if (!originalBody.includes("CONVERSATION_ID:")) {
-        originalBody += `<div style="display:none">CONVERSATION_ID:${conversationId}</div>`;
+        originalBody += `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${conversationId}</p>`;
       }
 
       const subject = Office.context.mailbox.item.subject;
