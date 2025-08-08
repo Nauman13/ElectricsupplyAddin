@@ -177,8 +177,10 @@ const CommentForm: React.FC = () => {
 
     const attachmentUrls: string[] = [];
 
+    // STEP 1: Upload files and generate shareable links
     if (selectedFiles.length > 0) {
       for (const file of selectedFiles) {
+        // Upload to /Comments folder
         const uploadRes = await fetch(
           `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/Comments/${file.name}:/content`,
           {
@@ -197,10 +199,38 @@ const CommentForm: React.FC = () => {
         }
 
         const uploaded = await uploadRes.json();
-        attachmentUrls.push(uploaded.webUrl);
+
+        // STEP 2: Create view link accessible to org
+        const shareRes = await fetch(
+          `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${uploaded.id}/createLink`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              type: "view", // or "edit" if you want users to edit
+              scope: "organization", // use "anonymous" if outside org access needed
+            }),
+          }
+        );
+
+        if (!shareRes.ok) {
+          console.error("Failed to create share link:", await shareRes.text());
+          continue;
+        }
+
+        const shareData = await shareRes.json();
+        const sharedLink = shareData?.link?.webUrl;
+
+        if (sharedLink) {
+          attachmentUrls.push(sharedLink);
+        }
       }
     }
 
+    // STEP 3: Save item in SharePoint list
     const fieldsData: any = {
       Title: "Email Comment",
       EmailID: conversationId,
@@ -230,8 +260,6 @@ const CommentForm: React.FC = () => {
     const item = await itemRes.json();
     setMentionedEmails(emails);
     return item.id;
-
-    // return itemId;
   };
 
   // Helper function to convert ArrayBuffer to Base64
