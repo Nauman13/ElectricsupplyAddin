@@ -235,6 +235,17 @@ const CommentForm: React.FC = () => {
 
     return { displayNames, emails };
   };
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(",")[1]); // Remove data:*/*;base64, prefix
+      };
+      reader.onerror = (error) => reject(error);
+      reader.readAsDataURL(file);
+    });
+  };
 
   const saveCommentToSharePoint = async () => {
     const token = await getAccessToken();
@@ -268,7 +279,7 @@ const CommentForm: React.FC = () => {
 
     // Upload attachments
     for (const file of selectedFiles) {
-      const fileBuffer = await file.arrayBuffer();
+      const base64Content = await fileToBase64(file);
       const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/add`;
 
       await fetch(uploadUrl, {
@@ -279,7 +290,7 @@ const CommentForm: React.FC = () => {
         },
         body: JSON.stringify({
           name: file.name,
-          contentBytes: Buffer.from(fileBuffer).toString("base64"),
+          contentBytes: base64Content,
         }),
       });
     }
