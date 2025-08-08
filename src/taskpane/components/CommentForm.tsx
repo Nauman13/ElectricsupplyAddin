@@ -8,8 +8,8 @@ import { Icon } from "@fluentui/react/lib/Icon";
 
 const siteId = "8314c8ba-c25a-4a02-bf25-d6238949ac8f";
 const listId = "5f59364d-9808-4d26-8e04-2527b4fc403e";
-const listName = "EmailComments";
-const SiteUrl = `https://jwelectricalsupply.sharepoint.com/sites/allcompany`;
+// const listName = "EmailComments";
+// const SiteUrl = `https://jwelectricalsupply.sharepoint.com/sites/allcompany`;
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -175,62 +175,7 @@ const CommentForm: React.FC = () => {
     const plainComment = stripMentionsFromComment(comment);
     const { displayNames, emails } = extractMentionData(comment);
 
-    const attachmentUrls: string[] = [];
-
-    // STEP 1: Upload files and generate shareable links
-    if (selectedFiles.length > 0) {
-      for (const file of selectedFiles) {
-        // Upload to /Comments folder
-        const uploadRes = await fetch(
-          `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/Comments/${file.name}:/content`,
-          {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": file.type,
-            },
-            body: file,
-          }
-        );
-
-        if (!uploadRes.ok) {
-          console.error(`Failed to upload ${file.name}:`, await uploadRes.text());
-          continue;
-        }
-
-        const uploaded = await uploadRes.json();
-
-        // STEP 2: Create view link accessible to org
-        const shareRes = await fetch(
-          `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${uploaded.id}/createLink`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              type: "view", // or "edit" if you want users to edit
-              scope: "organization", // use "anonymous" if outside org access needed
-            }),
-          }
-        );
-
-        if (!shareRes.ok) {
-          console.error("Failed to create share link:", await shareRes.text());
-          continue;
-        }
-
-        const shareData = await shareRes.json();
-        const sharedLink = shareData?.link?.webUrl;
-
-        if (sharedLink) {
-          attachmentUrls.push(sharedLink);
-        }
-      }
-    }
-
-    // STEP 3: Save item in SharePoint list
+    // Step 1: Create the comment list item (without attachments)
     const fieldsData: any = {
       Title: "Email Comment",
       EmailID: conversationId,
@@ -238,7 +183,6 @@ const CommentForm: React.FC = () => {
       MentionedUsers: displayNames.join(", "),
       CreatedBy: Office.context.mailbox.userProfile.displayName,
       CreatedDate: new Date().toISOString(),
-      AttachmentLinks: attachmentUrls.join("; "),
     };
 
     const itemRes = await fetch(
@@ -258,19 +202,41 @@ const CommentForm: React.FC = () => {
     }
 
     const item = await itemRes.json();
+    const itemId = item.id;
+
+    // Step 2: Upload each file as a list item attachment
+    for (const file of selectedFiles) {
+      const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/add`;
+
+      const uploadRes = await fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": file.type,
+          "Content-Length": file.size.toString(),
+          "Content-Disposition": `attachment; filename="${file.name}"`,
+        },
+        body: file,
+      });
+
+      if (!uploadRes.ok) {
+        console.error(`Failed to upload attachment ${file.name}:`, await uploadRes.text());
+      }
+    }
+
     setMentionedEmails(emails);
-    return item.id;
+    return itemId;
   };
 
   // Helper function to convert ArrayBuffer to Base64
-  const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  };
+  // const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+  //   const bytes = new Uint8Array(buffer);
+  //   let binary = "";
+  //   for (let i = 0; i < bytes.byteLength; i++) {
+  //     binary += String.fromCharCode(bytes[i]);
+  //   }
+  //   return btoa(binary);
+  // };
 
   const handleSaveAndShare = async () => {
     if (!comment.trim() && selectedFiles.length === 0) {
@@ -359,33 +325,33 @@ const CommentForm: React.FC = () => {
     });
   };
 
-  const downloadAttachment = async (itemId: string, attachmentId: string, fileName: string) => {
-    try {
-      const token = await getAccessToken();
-      const response = await fetch(
-        `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/${attachmentId}/$value`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+  // const downloadAttachment = async (itemId: string, attachmentId: string, fileName: string) => {
+  //   try {
+  //     const token = await getAccessToken();
+  //     const response = await fetch(
+  //       `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/${attachmentId}/$value`,
+  //       {
+  //         headers: { Authorization: `Bearer ${token}` },
+  //       }
+  //     );
 
-      if (!response.ok) {
-        throw new Error("Failed to download attachment");
-      }
+  //     if (!response.ok) {
+  //       throw new Error("Failed to download attachment");
+  //     }
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Error downloading attachment:", error);
-    }
-  };
+  //     const blob = await response.blob();
+  //     const url = window.URL.createObjectURL(blob);
+  //     const a = document.createElement("a");
+  //     a.href = url;
+  //     a.download = fileName;
+  //     document.body.appendChild(a);
+  //     a.click();
+  //     document.body.removeChild(a);
+  //     window.URL.revokeObjectURL(url);
+  //   } catch (error) {
+  //     console.error("Error downloading attachment:", error);
+  //   }
+  // };
 
   return (
     <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
@@ -436,38 +402,31 @@ const CommentForm: React.FC = () => {
                 </div>
               )}
 
-              {c.AttachmentLinks && (
+              {c.attachments && c.attachments.length > 0 && (
                 <div style={{ marginTop: "8px" }}>
-                  {c.AttachmentLinks.split(";").map((link: string, i: number) => {
-                    const cleanLink = link.trim();
-                    if (!cleanLink) return null;
-                    const fileName = decodeURIComponent(
-                      cleanLink.split("/").pop() || `File ${i + 1}`
-                    );
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          marginBottom: "4px",
-                        }}
+                  {c.attachments.map((att: any, i: number) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        marginBottom: "4px",
+                      }}
+                    >
+                      <Icon
+                        iconName="Attach"
+                        style={{ fontSize: 14, marginRight: "6px", color: "#0078d4" }}
+                      />
+                      <a
+                        href={att.contentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: "12px", color: "#0078d4", textDecoration: "none" }}
                       >
-                        <Icon
-                          iconName="Attach"
-                          style={{ fontSize: 14, marginRight: "6px", color: "#0078d4" }}
-                        />
-                        <a
-                          href={cleanLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ fontSize: "12px", color: "#0078d4", textDecoration: "none" }}
-                        >
-                          {fileName}
-                        </a>
-                      </div>
-                    );
-                  })}
+                        {att.name}
+                      </a>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -533,7 +492,7 @@ const CommentForm: React.FC = () => {
               fontSize: "13px",
             }}
           >
-            <Icon iconName="AttachFile" style={{ fontSize: 16, marginRight: "6px" }} />
+            <Icon iconName="Attach File" style={{ fontSize: 16, marginRight: "6px" }} />
             <span>Attach File</span>
             <input
               id="file-input"
