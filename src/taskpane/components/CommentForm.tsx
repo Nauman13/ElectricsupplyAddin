@@ -408,30 +408,38 @@ const CommentForm: React.FC = () => {
                 </div>
               )}
 
-              {c.Attachments && c.Attachments.length > 0 && (
+              {c.AttachmentLinks && (
                 <div style={{ marginTop: "8px" }}>
-                  {c.Attachments.map((att: any, idx: number) => (
-                    <div
-                      key={idx}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        marginBottom: "4px",
-                        cursor: "pointer",
-                      }}
-                      onClick={() => downloadAttachment(c.SharePointId, att.id, att.name)}
-                    >
-                      <Icon
-                        iconName="Attach"
+                  {c.AttachmentLinks.split(";").map((link: string, i: number) => {
+                    const cleanLink = link.trim();
+                    if (!cleanLink) return null;
+                    const fileName = decodeURIComponent(
+                      cleanLink.split("/").pop() || `File ${i + 1}`
+                    );
+                    return (
+                      <div
+                        key={i}
                         style={{
-                          fontSize: 14,
-                          marginRight: "6px",
-                          color: "#0078d4",
+                          display: "flex",
+                          alignItems: "center",
+                          marginBottom: "4px",
                         }}
-                      />
-                      <span style={{ fontSize: "12px", color: "#0078d4" }}>{att.name}</span>
-                    </div>
-                  ))}
+                      >
+                        <Icon
+                          iconName="Attach"
+                          style={{ fontSize: 14, marginRight: "6px", color: "#0078d4" }}
+                        />
+                        <a
+                          href={cleanLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: "12px", color: "#0078d4", textDecoration: "none" }}
+                        >
+                          {fileName}
+                        </a>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -497,7 +505,7 @@ const CommentForm: React.FC = () => {
               fontSize: "13px",
             }}
           >
-            <Icon iconName="Attach" style={{ fontSize: 16, marginRight: "6px" }} />
+            <Icon iconName="AttachFile" style={{ fontSize: 16, marginRight: "6px" }} />
             <span>Attach File</span>
             <input
               id="file-input"
@@ -532,7 +540,7 @@ const CommentForm: React.FC = () => {
               }}
             >
               <div style={{ display: "flex", alignItems: "center" }}>
-                <Icon iconName="Attach" style={{ fontSize: 14, marginRight: "6px" }} />
+                <Icon iconName="AttachFile" style={{ fontSize: 14, marginRight: "6px" }} />
                 <span style={{ fontSize: "12px" }}>{file.name}</span>
               </div>
               <button
@@ -541,7 +549,7 @@ const CommentForm: React.FC = () => {
                   background: "none",
                   border: "none",
                   cursor: "pointer",
-                  color: "#a4262c",
+                  color: "#756d6eff",
                   fontSize: "12px",
                 }}
               >
