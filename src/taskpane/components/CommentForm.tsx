@@ -8,12 +8,27 @@ import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner";
 // SharePoint Config
 const siteId = "8314c8ba-c25a-4a02-bf25-d6238949ac8f";
 const listId = "5f59364d-9808-4d26-8e04-2527b4fc403e";
+const siteUrl = "https://jwelectricalsupply.sharepoint.com/sites/allcompany";
 
 const msalInstance = new PublicClientApplication(msalConfig);
+interface IAttachment {
+  FileName: string;
+  ServerRelativeUrl: string;
+}
+
+interface ICommentFields {
+  Title: string;
+  EmailID: string;
+  Comment: string;
+  MentionedUsers?: string;
+  CreatedBy?: string;
+  CreatedDate?: string;
+  Attachments?: IAttachment[];
+}
 
 const CommentForm: React.FC = () => {
   const [comment, setComment] = useState<string>("");
-  const [commentHistory, setCommentHistory] = useState<any[]>([]);
+  const [commentHistory, setCommentHistory] = useState<ICommentFields[]>([]);
   const [people, setPeople] = useState<any[]>([]);
   const [mentionedEmails, setMentionedEmails] = useState<string[]>([]);
   const [conversationId, setConversationId] = useState<string>("");
@@ -179,8 +194,9 @@ const CommentForm: React.FC = () => {
     setLoading(true);
     try {
       const token = await getAccessToken();
-      const emailIdValue = encodeURIComponent(id);
 
+      // 1️⃣ Pehle Graph API se list items fetch karo (sirf fields ke liye)
+      const emailIdValue = encodeURIComponent(id);
       const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
 
       const response = await fetch(url, {
@@ -188,22 +204,25 @@ const CommentForm: React.FC = () => {
       });
 
       const data = await response.json();
+
+      // 2️⃣ Har item ke attachments SharePoint REST API se fetch karo
       const comments = await Promise.all(
         data.value.map(async (item: any) => {
           const fields = item.fields;
 
-          // Fetch attachments for each comment
+          // SharePoint REST API attachments endpoint
           const attachmentsRes = await fetch(
-            `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${item.id}/attachments`,
+            `${siteUrl}/_api/web/lists(guid'${listId}')/items(${item.id})/AttachmentFiles`,
             {
               headers: {
                 Authorization: `Bearer ${token}`,
+                Accept: "application/json;odata=verbose",
               },
             }
           );
 
           const attachmentsData = await attachmentsRes.json();
-          fields.Attachments = attachmentsData.value;
+          fields.Attachments = attachmentsData.d?.results || [];
           console.log(attachmentsData, " attachmentsData");
 
           return fields;
@@ -261,7 +280,7 @@ const CommentForm: React.FC = () => {
       CreatedDate: new Date().toISOString(),
     };
 
-    // Create List Item
+    // 1️⃣ Create List Item
     const createItemRes = await fetch(
       `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`,
       {
@@ -277,22 +296,21 @@ const CommentForm: React.FC = () => {
     const itemData = await createItemRes.json();
     const itemId = itemData.id;
 
-    // Upload attachments
+    // 2️⃣ Upload attachments using SharePoint REST API (browser-safe)
     for (const file of selectedFiles) {
-      const base64Content = await fileToBase64(file);
-      const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/add`;
+      const arrayBuffer = await file.arrayBuffer();
 
-      await fetch(uploadUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: file.name,
-          contentBytes: base64Content,
-        }),
-      });
+      await fetch(
+        `${siteUrl}/_api/web/lists(guid'${listId}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(file.name)}')`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json;odata=verbose",
+          },
+          body: arrayBuffer, // directly pass binary content
+        }
+      );
     }
 
     setMentionedEmails(emails);
@@ -404,17 +422,37 @@ const CommentForm: React.FC = () => {
                 </div>
               </div>
               {c.Attachments && c.Attachments.length > 0 && (
-                <div style={{ marginTop: "8px" }}>
-                  <strong>Attachments:</strong>
-                  <ul style={{ paddingLeft: "20px" }}>
-                    {c.Attachments.map((att: any, i: number) => (
-                      <li key={i}>
-                        <a href={att.contentUrl} target="_blank" rel="noopener noreferrer">
-                          {att.name}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
+                <div className="attachments">
+                  {c.Attachments.map((file: any, idx: number) => {
+                    const fileUrl = `${siteUrl}${file.ServerRelativeUrl}`;
+                    const isImage = /\.(jpg|jpeg|png|gif)$/i.test(file.FileName);
+
+                    return (
+                      <div key={idx} className="attachment-item">
+                        {isImage ? (
+                          <img
+                            src={fileUrl}
+                            alt={file.FileName}
+                            style={{
+                              maxWidth: "150px",
+                              maxHeight: "150px",
+                              objectFit: "cover",
+                              margin: "5px",
+                            }}
+                          />
+                        ) : (
+                          <a
+                            href={fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: "block", margin: "5px", color: "#0078d4" }}
+                          >
+                            {file.FileName}
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
