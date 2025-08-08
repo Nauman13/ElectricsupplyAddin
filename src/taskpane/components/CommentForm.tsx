@@ -178,7 +178,14 @@ const CommentForm: React.FC = () => {
     });
 
     const data = await response.json();
-    return data.d.GetContextWebInformation.FormDigestValue;
+
+    const digestValue = data?.GetContextWebInformation?.FormDigestValue || data?.FormDigestValue;
+
+    if (!digestValue) {
+      throw new Error("Failed to retrieve FormDigestValue from contextinfo response");
+    }
+
+    return digestValue;
   };
 
   const saveCommentToSharePoint = async () => {
