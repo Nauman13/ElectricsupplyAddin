@@ -444,6 +444,10 @@ const CommentForm: React.FC = () => {
               list: { backgroundColor: "#fff", border: "1px solid #ccc", fontSize: 14 },
               item: { padding: "5px 10px" },
             },
+            highlighter: {
+              padding: "8px",
+              paddingRight: "30px", // Match the padding of the control
+            },
           }}
         >
           <Mention
@@ -461,17 +465,21 @@ const CommentForm: React.FC = () => {
 
         {/* Paperclip icon positioned inside the textarea */}
         <label
+          htmlFor="file-input"
           style={{
             position: "absolute",
-            right: "10px",
-            bottom: "10px",
+            right: "15px",
+            bottom: "15px",
             cursor: "pointer",
-            zIndex: 1,
+            zIndex: 2, // Increased z-index
+            backgroundColor: "transparent",
+            padding: "5px",
           }}
           title="Attach file"
         >
           <Icon iconName="Attach" style={{ fontSize: 16, color: "#666" }} />
           <input
+            id="file-input"
             key={fileInputKey}
             type="file"
             multiple
