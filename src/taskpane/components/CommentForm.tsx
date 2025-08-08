@@ -4,12 +4,10 @@ import { MentionsInput, Mention } from "react-mentions";
 import { PublicClientApplication } from "@azure/msal-browser";
 import { msalConfig } from "./msalConfig";
 import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner";
-import { Icon } from "@fluentui/react/lib/Icon";
 
+// SharePoint Config
 const siteId = "8314c8ba-c25a-4a02-bf25-d6238949ac8f";
 const listId = "5f59364d-9808-4d26-8e04-2527b4fc403e";
-// const listName = "EmailComments";
-// const SiteUrl = `https://jwelectricalsupply.sharepoint.com/sites/allcompany`;
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -21,14 +19,15 @@ const CommentForm: React.FC = () => {
   const [conversationId, setConversationId] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [sending, setSending] = useState<boolean>(false);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [fileInputKey, setFileInputKey] = useState<number>(0);
 
   const waitForMailboxItem = (): Promise<void> => {
     return new Promise((resolve) => {
       const check = () => {
-        if (Office.context?.mailbox?.item) resolve();
-        else setTimeout(check, 100);
+        if (Office.context?.mailbox?.item) {
+          resolve();
+        } else {
+          setTimeout(check, 100); // keep checking every 100ms
+        }
       };
       check();
     });
@@ -43,8 +42,11 @@ const CommentForm: React.FC = () => {
 
         item.body.getAsync(Office.CoercionType.Html, async (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
-            const match = result.value.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
-            const convId = match?.[1] || item.conversationId;
+            const bodyContent = result.value;
+            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
+
+            let convId = match?.[1] || item.conversationId;
+
             if (convId) {
               setConversationId(convId);
               await fetchCommentsFromSharePoint(convId);
@@ -61,18 +63,6 @@ const CommentForm: React.FC = () => {
   useEffect(() => {
     fetchUsers();
   }, []);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setSelectedFiles([...selectedFiles, ...Array.from(e.target.files)]);
-    }
-  };
-
-  const removeFile = (index: number) => {
-    const newFiles = [...selectedFiles];
-    newFiles.splice(index, 1);
-    setSelectedFiles(newFiles);
-  };
 
   const initializeMsal = async () => {
     await msalInstance.initialize();
@@ -95,173 +85,6 @@ const CommentForm: React.FC = () => {
     });
 
     return tokenResponse.accessToken;
-  };
-
-  const fetchUsers = async () => {
-    try {
-      const token = await getAccessToken();
-      const response = await fetch("https://graph.microsoft.com/v1.0/users?$top=50", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const data = await response.json();
-      const usersData = data.value.map((user: any) => ({
-        id: user.mail || user.userPrincipalName,
-        display: user.displayName,
-        email: user.mail || user.userPrincipalName,
-      }));
-
-      setPeople(usersData);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-    }
-  };
-
-  const fetchCommentsFromSharePoint = async (convId?: string) => {
-    const id = convId || conversationId;
-    if (!id) return;
-
-    setLoading(true);
-    try {
-      const token = await getAccessToken();
-      const emailIdValue = encodeURIComponent(id);
-
-      const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields,attachments&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
-
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        console.error("Fetch comments failed:", await response.text());
-        return;
-      }
-
-      const data = await response.json();
-      const comments = data.value.map((item: any) => ({
-        ...item.fields,
-        Attachments: item.attachments || [],
-        SharePointId: item.id,
-      }));
-
-      setCommentHistory(comments);
-    } catch (error) {
-      console.error("Error fetching comments:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const stripMentionsFromComment = (input: string): string => {
-    return input.replace(/@\[[^\]]+\]\([^)]+\)/g, "").trim();
-  };
-
-  const extractMentionData = (input: string) => {
-    const mentionRegex = /@\[([^\]]+)\]\(([^)]+)\)/g;
-    const displayNames: string[] = [];
-    const emails: string[] = [];
-
-    let match;
-    while ((match = mentionRegex.exec(input)) !== null) {
-      displayNames.push(match[1]);
-      emails.push(match[2]);
-    }
-
-    return { displayNames, emails };
-  };
-
-  const saveCommentToSharePoint = async () => {
-    const token = await getAccessToken();
-    const plainComment = stripMentionsFromComment(comment);
-    const { displayNames, emails } = extractMentionData(comment);
-
-    // Step 1: Create the comment list item (without attachments)
-    const fieldsData: any = {
-      Title: "Email Comment",
-      EmailID: conversationId,
-      Comment: plainComment,
-      MentionedUsers: displayNames.join(", "),
-      CreatedBy: Office.context.mailbox.userProfile.displayName,
-      CreatedDate: new Date().toISOString(),
-    };
-
-    const itemRes = await fetch(
-      `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ fields: fieldsData }),
-      }
-    );
-
-    if (!itemRes.ok) {
-      throw new Error(`Failed to create item: ${await itemRes.text()}`);
-    }
-
-    const item = await itemRes.json();
-    const itemId = item.id;
-
-    // Step 2: Upload each file as a list item attachment
-    for (const file of selectedFiles) {
-      const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/add`;
-
-      const uploadRes = await fetch(uploadUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": file.type,
-          "Content-Length": file.size.toString(),
-          "Content-Disposition": `attachment; filename="${file.name}"`,
-        },
-        body: file,
-      });
-
-      if (!uploadRes.ok) {
-        console.error(`Failed to upload attachment ${file.name}:`, await uploadRes.text());
-      }
-    }
-
-    setMentionedEmails(emails);
-    return itemId;
-  };
-
-  // Helper function to convert ArrayBuffer to Base64
-  // const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
-  //   const bytes = new Uint8Array(buffer);
-  //   let binary = "";
-  //   for (let i = 0; i < bytes.byteLength; i++) {
-  //     binary += String.fromCharCode(bytes[i]);
-  //   }
-  //   return btoa(binary);
-  // };
-
-  const handleSaveAndShare = async () => {
-    if (!comment.trim() && selectedFiles.length === 0) {
-      alert("Please add a comment or attach a file before saving.");
-      return;
-    }
-
-    setSending(true);
-    try {
-      await saveCommentToSharePoint();
-      await fetchCommentsFromSharePoint();
-
-      if (mentionedEmails.length > 0) {
-        await forwardOriginalEmailToMentionedUsers();
-      }
-
-      setComment("");
-      setMentionedEmails([]);
-      setSelectedFiles([]);
-      setFileInputKey((prev) => prev + 1); // Reset file input
-    } catch (error) {
-      console.error("Error saving comment:", error);
-    } finally {
-      setSending(false);
-    }
   };
 
   const forwardOriginalEmailToMentionedUsers = async () => {
@@ -294,16 +117,16 @@ const CommentForm: React.FC = () => {
           body: {
             contentType: "HTML",
             content: `
-              <p>Hello,</p>
-              <p>You were mentioned in a conversation. Here's the original email:</p>
-              <hr />
-              <p><strong>From:</strong> ${from}</p>
-              <p><strong>Subject:</strong> ${subject}</p>
-              <hr />
-              ${originalBody}
-              <hr />
-              <p>You can open the Outlook Add-in to view and add comments.</p>
-            `,
+            <p>Hello,</p>
+            <p>You were mentioned in a conversation. Here's the original email:</p>
+            <hr />
+            <p><strong>From:</strong> ${from}</p>
+            <p><strong>Subject:</strong> ${subject}</p>
+            <hr />
+            ${originalBody}
+            <hr />
+            <p>You can open the Outlook Add-in to view and add comments.</p>
+          `,
           },
           toRecipients,
         },
@@ -320,38 +143,134 @@ const CommentForm: React.FC = () => {
       });
 
       if (!res.ok) {
-        console.error("Failed to send mail:", await res.text());
+        const errText = await res.text();
+        console.error("Failed to send mail:", errText);
+      } else {
+        console.log("Successfully sent forward-style email to mentioned users.");
       }
     });
   };
 
-  // const downloadAttachment = async (itemId: string, attachmentId: string, fileName: string) => {
-  //   try {
-  //     const token = await getAccessToken();
-  //     const response = await fetch(
-  //       `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/${attachmentId}/$value`,
-  //       {
-  //         headers: { Authorization: `Bearer ${token}` },
-  //       }
-  //     );
+  const fetchUsers = async () => {
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("https://graph.microsoft.com/v1.0/users?$top=50", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-  //     if (!response.ok) {
-  //       throw new Error("Failed to download attachment");
-  //     }
+      const data = await response.json();
+      const usersData = data.value.map((user: any) => ({
+        id: user.mail || user.userPrincipalName,
+        display: user.displayName,
+        email: user.mail || user.userPrincipalName,
+      }));
 
-  //     const blob = await response.blob();
-  //     const url = window.URL.createObjectURL(blob);
-  //     const a = document.createElement("a");
-  //     a.href = url;
-  //     a.download = fileName;
-  //     document.body.appendChild(a);
-  //     a.click();
-  //     document.body.removeChild(a);
-  //     window.URL.revokeObjectURL(url);
-  //   } catch (error) {
-  //     console.error("Error downloading attachment:", error);
-  //   }
-  // };
+      setPeople(usersData);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+  };
+
+  const fetchCommentsFromSharePoint = async (convId?: string) => {
+    const id = convId || conversationId;
+    if (!id) return;
+
+    setLoading(true);
+    try {
+      const token = await getAccessToken();
+      const emailIdValue = encodeURIComponent(id);
+
+      const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
+
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        console.error("Fetch comments failed:", await response.text());
+        return;
+      }
+
+      const data = await response.json();
+      const comments = data.value
+        .map((item: any) => item.fields)
+        .sort((a, b) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime());
+
+      setCommentHistory(comments);
+    } catch (error) {
+      console.error("Error fetching comments:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stripMentionsFromComment = (input: string): string => {
+    return input.replace(/@\[[^\]]+\]\([^)]+\)/g, "").trim();
+  };
+
+  const extractMentionData = (input: string) => {
+    const mentionRegex = /@\[([^\]]+)\]\(([^)]+)\)/g;
+    const displayNames: string[] = [];
+    const emails: string[] = [];
+
+    let match;
+    while ((match = mentionRegex.exec(input)) !== null) {
+      displayNames.push(match[1]);
+      emails.push(match[2]);
+    }
+
+    return { displayNames, emails };
+  };
+
+  const saveCommentToSharePoint = async () => {
+    const token = await getAccessToken();
+    const plainComment = stripMentionsFromComment(comment);
+    const { displayNames, emails } = extractMentionData(comment);
+
+    const fieldsData: any = {
+      Title: "Email Comment",
+      EmailID: conversationId,
+      Comment: plainComment,
+      MentionedUsers: displayNames.join(", "),
+      CreatedBy: Office.context.mailbox.userProfile.displayName,
+      CreatedDate: new Date().toISOString(),
+    };
+
+    await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ fields: fieldsData }),
+    });
+
+    setMentionedEmails(emails);
+  };
+
+  const handleSaveAndShare = async () => {
+    if (!comment.trim()) {
+      alert("Please add a comment before saving.");
+      return;
+    }
+
+    setSending(true);
+    try {
+      await saveCommentToSharePoint();
+      await fetchCommentsFromSharePoint();
+
+      if (mentionedEmails.length > 0) {
+        await forwardOriginalEmailToMentionedUsers();
+      }
+
+      setComment("");
+      setMentionedEmails([]);
+    } catch (error) {
+      console.error("Error saving comment:", error);
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
@@ -363,10 +282,19 @@ const CommentForm: React.FC = () => {
           borderRadius: "6px",
           maxHeight: "450px",
           overflowY: "auto",
+          position: "relative",
+          minHeight: "100px",
         }}
       >
         {loading ? (
-          <div style={{ display: "flex", justifyContent: "center", height: "100px" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              height: "100px",
+            }}
+          >
             <Spinner size={SpinnerSize.medium} label="Loading comments..." />
           </div>
         ) : commentHistory.length > 0 ? (
@@ -374,64 +302,55 @@ const CommentForm: React.FC = () => {
             <div
               key={index}
               style={{
+                display: "flex",
+                alignItems: "flex-start",
                 marginBottom: "15px",
                 padding: "10px",
                 borderRadius: "8px",
                 backgroundColor: "#f4f6f9",
               }}
             >
-              <div style={{ fontWeight: 600 }}>{c.CreatedBy}</div>
-              <div>{c.Comment}</div>
+              {/* Initial */}
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  backgroundColor: "#dfe1e5",
+                  textAlign: "center",
+                  lineHeight: "30px",
+                  fontWeight: "bold",
+                  fontSize: "16px",
+                  marginRight: "10px",
+                }}
+              >
+                {c.CreatedBy?.charAt(0).toUpperCase()}
+              </div>
 
-              {c.MentionedUsers && (
-                <div style={{ fontSize: "12px", marginTop: "4px" }}>
-                  {c.MentionedUsers.split(",").map((name: string, i: number) => (
-                    <span
-                      key={i}
-                      style={{
-                        backgroundColor: "#e6f0ff",
-                        color: "#1a73e8",
-                        padding: "2px 6px",
-                        borderRadius: "4px",
-                        marginRight: "5px",
-                      }}
-                    >
-                      @{name.trim()}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {c.attachments && c.attachments.length > 0 && (
-                <div style={{ marginTop: "8px" }}>
-                  {c.attachments.map((att: any, i: number) => (
-                    <div
-                      key={i}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        marginBottom: "4px",
-                      }}
-                    >
-                      <Icon
-                        iconName="Attach"
-                        style={{ fontSize: 14, marginRight: "6px", color: "#0078d4" }}
-                      />
-                      <a
-                        href={att.contentUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontSize: "12px", color: "#0078d4", textDecoration: "none" }}
+              <div>
+                <div style={{ fontWeight: 600 }}>{c.CreatedBy}</div>
+                <div style={{ margin: "5px 0" }}>{c.Comment}</div>
+                {c.MentionedUsers && (
+                  <div style={{ fontSize: "12px" }}>
+                    {c.MentionedUsers.split(",").map((name: string, i: number) => (
+                      <span
+                        key={i}
+                        style={{
+                          backgroundColor: "#e6f0ff",
+                          color: "#1a73e8",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          marginRight: "5px",
+                        }}
                       >
-                        {att.name}
-                      </a>
-                    </div>
-                  ))}
+                        @{name.trim()}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
+                  {new Date(c.CreatedDate).toLocaleString()}
                 </div>
-              )}
-
-              <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
-                {new Date(c.CreatedDate).toLocaleString()}
               </div>
             </div>
           ))
@@ -440,7 +359,7 @@ const CommentForm: React.FC = () => {
         )}
       </div>
 
-      <div style={{ position: "relative" }}>
+      <div style={{ marginBottom: "10px", borderRadius: "10px" }}>
         <MentionsInput
           value={comment}
           onChange={(e) => setComment(e.target.value)}
@@ -452,18 +371,33 @@ const CommentForm: React.FC = () => {
               padding: "8px",
               borderRadius: "10px",
               border: "1px solid #ccc",
-              minHeight: "60px",
+              minHeight: "40px",
+              maxHeight: "60px",
+              overflowY: "auto",
             },
             input: {
               margin: 0,
               paddingLeft: "10px",
-              border: "none",
+              borderRadius: "10px",
               outline: "none",
-              minHeight: "40px",
+              border: "none",
+            },
+            highlighter: {
+              overflow: "hidden",
             },
             suggestions: {
-              list: { backgroundColor: "#fff", border: "1px solid #ccc", fontSize: 14 },
-              item: { padding: "5px 10px" },
+              list: {
+                backgroundColor: "#fff",
+                border: "1px solid #ccc",
+                fontSize: 14,
+              },
+              item: {
+                padding: "5px 10px",
+                borderBottom: "1px solid #eee",
+                "&focused": {
+                  backgroundColor: "#e6f0ff",
+                },
+              },
             },
           }}
         >
@@ -479,73 +413,7 @@ const CommentForm: React.FC = () => {
             }}
           />
         </MentionsInput>
-
-        {/* Attachment section below textarea */}
-        <div style={{ display: "flex", alignItems: "center", marginTop: "8px" }}>
-          <label
-            htmlFor="file-input"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              cursor: "pointer",
-              color: "#666",
-              fontSize: "13px",
-            }}
-          >
-            <Icon iconName="Attach File" style={{ fontSize: 16, marginRight: "6px" }} />
-            <span>Attach File</span>
-            <input
-              id="file-input"
-              key={fileInputKey}
-              type="file"
-              multiple
-              onChange={handleFileChange}
-              style={{ display: "none" }}
-            />
-          </label>
-        </div>
       </div>
-
-      {/* Selected files preview */}
-      {selectedFiles.length > 0 && (
-        <div
-          style={{
-            marginTop: "8px",
-            padding: "8px",
-            backgroundColor: "#f5f5f5",
-            borderRadius: "4px",
-          }}
-        >
-          {selectedFiles.map((file, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "4px",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center" }}>
-                <Icon iconName="AttachFile" style={{ fontSize: 14, marginRight: "6px" }} />
-                <span style={{ fontSize: "12px" }}>{file.name}</span>
-              </div>
-              <button
-                onClick={() => removeFile(i)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: "#756d6eff",
-                  fontSize: "12px",
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
 
       <button
         onClick={handleSaveAndShare}
@@ -557,7 +425,6 @@ const CommentForm: React.FC = () => {
           padding: "10px 16px",
           borderRadius: "5px",
           float: "right",
-          marginTop: "10px",
           display: "flex",
           alignItems: "center",
           gap: "8px",
