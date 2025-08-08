@@ -182,6 +182,7 @@ const CommentForm: React.FC = () => {
       CreatedDate: new Date().toISOString(),
     };
 
+    // First create the list item
     const itemRes = await fetch(
       `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`,
       {
@@ -194,27 +195,54 @@ const CommentForm: React.FC = () => {
       }
     );
 
+    if (!itemRes.ok) {
+      throw new Error(`Failed to create item: ${await itemRes.text()}`);
+    }
+
     const item = await itemRes.json();
+    const itemId = item.id;
 
     // Upload attachments if any
     if (selectedFiles.length > 0) {
       for (const file of selectedFiles) {
-        const arrayBuffer = await file.arrayBuffer();
-        const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${item.id}/attachments/${encodeURIComponent(file.name)}/content`;
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments`;
 
-        await fetch(uploadUrl, {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/octet-stream",
-          },
-          body: arrayBuffer,
-        });
+          const attachmentRes = await fetch(uploadUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: file.name,
+              contentBytes: arrayBufferToBase64(arrayBuffer),
+            }),
+          });
+
+          if (!attachmentRes.ok) {
+            console.error(`Failed to upload ${file.name}:`, await attachmentRes.text());
+            continue;
+          }
+        } catch (error) {
+          console.error(`Error uploading ${file.name}:`, error);
+        }
       }
     }
 
     setMentionedEmails(emails);
-    return item.id; // Return the SharePoint item ID
+    return itemId;
+  };
+
+  // Helper function to convert ArrayBuffer to Base64
+  const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
   };
 
   const handleSaveAndShare = async () => {
@@ -431,7 +459,6 @@ const CommentForm: React.FC = () => {
               borderRadius: "10px",
               border: "1px solid #ccc",
               minHeight: "60px",
-              paddingRight: "30px", // Make space for the paperclip icon
             },
             input: {
               margin: 0,
@@ -443,10 +470,6 @@ const CommentForm: React.FC = () => {
             suggestions: {
               list: { backgroundColor: "#fff", border: "1px solid #ccc", fontSize: 14 },
               item: { padding: "5px 10px" },
-            },
-            highlighter: {
-              padding: "8px",
-              paddingRight: "30px", // Match the padding of the control
             },
           }}
         >
@@ -463,30 +486,30 @@ const CommentForm: React.FC = () => {
           />
         </MentionsInput>
 
-        {/* Paperclip icon positioned inside the textarea */}
-        <label
-          htmlFor="file-input"
-          style={{
-            position: "absolute",
-            right: "15px",
-            bottom: "15px",
-            cursor: "pointer",
-            zIndex: 2, // Increased z-index
-            backgroundColor: "transparent",
-            padding: "5px",
-          }}
-          title="Attach file"
-        >
-          <Icon iconName="Attach" style={{ fontSize: 16, color: "#666" }} />
-          <input
-            id="file-input"
-            key={fileInputKey}
-            type="file"
-            multiple
-            onChange={handleFileChange}
-            style={{ display: "none" }}
-          />
-        </label>
+        {/* Attachment section below textarea */}
+        <div style={{ display: "flex", alignItems: "center", marginTop: "8px" }}>
+          <label
+            htmlFor="file-input"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              cursor: "pointer",
+              color: "#666",
+              fontSize: "13px",
+            }}
+          >
+            <Icon iconName="Attach" style={{ fontSize: 16, marginRight: "6px" }} />
+            <span>Attach File</span>
+            <input
+              id="file-input"
+              key={fileInputKey}
+              type="file"
+              multiple
+              onChange={handleFileChange}
+              style={{ display: "none" }}
+            />
+          </label>
+        </div>
       </div>
 
       {/* Selected files preview */}
