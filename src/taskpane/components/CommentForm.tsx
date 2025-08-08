@@ -86,7 +86,6 @@ const CommentForm: React.FC = () => {
     try {
       await msalInstance.initialize();
     } catch (e) {
-      // initialize may throw in some setups; ignore if already initialized
       console.warn("msal initialize warning:", e);
     }
   };
@@ -111,7 +110,6 @@ const CommentForm: React.FC = () => {
   };
 
   // Get a SharePoint resource token (audience = https://{tenant}.sharepoint.com)
-  // This token is required for calling _api endpoints (AttachmentFiles).
   const getSharePointToken = async (): Promise<string> => {
     await initializeMsal();
     let accounts = msalInstance.getAllAccounts();
@@ -122,8 +120,6 @@ const CommentForm: React.FC = () => {
       accounts = [loginResp.account];
     }
 
-    // Use resource scope for SharePoint. In v2 endpoints, use offline/.default style scope.
-    // This requires that the app registration has delegated permission for SharePoint.
     const spScope = `https://${tenantHost}/.default`;
 
     try {
@@ -133,7 +129,6 @@ const CommentForm: React.FC = () => {
       });
       return resp.accessToken;
     } catch (err) {
-      // fallback to interactive if silent fails
       const resp = await msalInstance.acquireTokenPopup({
         scopes: [spScope],
       });
@@ -142,7 +137,7 @@ const CommentForm: React.FC = () => {
   };
 
   // -------------------------
-  // Email forward (Graph) - unchanged logic (uses graph token)
+  // Email forward (Graph)
   // -------------------------
   const forwardOriginalEmailToMentionedUsers = async () => {
     if (mentionedEmails.length === 0) return;
@@ -277,7 +272,6 @@ const CommentForm: React.FC = () => {
               // odata verbose shape: attJson.d.results
               fields.Attachments = attJson.d?.results || [];
             } else {
-              // if 401/403/other, set empty attachments and log
               console.warn(
                 `Attachment fetch failed for item ${item.id}:`,
                 attRes.status,
@@ -423,7 +417,7 @@ const CommentForm: React.FC = () => {
   };
 
   // -------------------------
-  // JSX UI - kept identical to your original (only internal logic changed)
+  // JSX UI - kept identical to your original (attachments shown as LINKS now)
   // -------------------------
   return (
     <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
@@ -480,9 +474,9 @@ const CommentForm: React.FC = () => {
                 {c.CreatedBy?.charAt(0).toUpperCase()}
               </div>
 
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>{c.CreatedBy}</div>
-                <div style={{ margin: "5px 0" }}>{c.Comment}</div>
+                <div style={{ margin: "5px 0", whiteSpace: "pre-wrap" }}>{c.Comment}</div>
                 {c.MentionedUsers && (
                   <div style={{ fontSize: "12px" }}>
                     {c.MentionedUsers.split(",").map((name: string, i: number) => (
@@ -504,41 +498,32 @@ const CommentForm: React.FC = () => {
                 <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
                   {new Date(c.CreatedDate).toLocaleString()}
                 </div>
-              </div>
-              {c.Attachments && c.Attachments.length > 0 && (
-                <div className="attachments">
-                  {c.Attachments.map((file: any, idx: number) => {
-                    const fileUrl = `${siteUrl}${file.ServerRelativeUrl}`;
-                    const isImage = /\.(jpg|jpeg|png|gif)$/i.test(file.FileName);
 
-                    return (
-                      <div key={idx} className="attachment-item">
-                        {isImage ? (
-                          <img
-                            src={fileUrl}
-                            alt={file.FileName}
-                            style={{
-                              maxWidth: "150px",
-                              maxHeight: "150px",
-                              objectFit: "cover",
-                              margin: "5px",
-                            }}
-                          />
-                        ) : (
-                          <a
-                            href={fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ display: "block", margin: "5px", color: "#0078d4" }}
-                          >
-                            {file.FileName}
-                          </a>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                {/* ---------- ATTACHMENTS: SHOW LINKS ONLY ---------- */}
+                {c.Attachments && c.Attachments.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <strong style={{ fontSize: 12 }}>Attachments:</strong>
+                    <ul style={{ margin: "6px 0 0 0", paddingLeft: 18 }}>
+                      {c.Attachments.map((file: any, idx: number) => {
+                        // Build full URL from ServerRelativeUrl
+                        const fileUrl = `${siteUrl}${file.ServerRelativeUrl}`;
+                        return (
+                          <li key={idx} style={{ marginBottom: 6 }}>
+                            <a
+                              href={fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: "#0078d4", textDecoration: "underline" }}
+                            >
+                              {file.FileName}
+                            </a>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </div>
           ))
         ) : (
