@@ -240,7 +240,7 @@ const CommentForm: React.FC = () => {
       const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;
-        resolve(result.split(",")[1]); // Remove data:*/*;base64, prefix
+        resolve(result.split(",")[1]); // remove data:*/*;base64, prefix
       };
       reader.onerror = (error) => reject(error);
       reader.readAsDataURL(file);
@@ -315,6 +315,7 @@ const CommentForm: React.FC = () => {
 
       setComment("");
       setMentionedEmails([]);
+      setSelectedFiles([]);
     } catch (error) {
       console.error("Error saving comment:", error);
     } finally {
