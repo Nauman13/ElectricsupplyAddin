@@ -19,6 +19,7 @@ const CommentForm: React.FC = () => {
   const [conversationId, setConversationId] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [sending, setSending] = useState<boolean>(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   const waitForMailboxItem = (): Promise<void> => {
     return new Promise((resolve) => {
@@ -186,15 +187,28 @@ const CommentForm: React.FC = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!response.ok) {
-        console.error("Fetch comments failed:", await response.text());
-        return;
-      }
-
       const data = await response.json();
-      const comments = data.value
-        .map((item: any) => item.fields)
-        .sort((a, b) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime());
+      const comments = await Promise.all(
+        data.value.map(async (item: any) => {
+          const fields = item.fields;
+
+          // Fetch attachments for each comment
+          const attachmentsRes = await fetch(
+            `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${item.id}/attachments`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+
+          const attachmentsData = await attachmentsRes.json();
+          fields.Attachments = attachmentsData.value;
+          console.log(attachmentsData, " attachmentsData");
+
+          return fields;
+        })
+      );
 
       setCommentHistory(comments);
     } catch (error) {
@@ -236,14 +250,39 @@ const CommentForm: React.FC = () => {
       CreatedDate: new Date().toISOString(),
     };
 
-    await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ fields: fieldsData }),
-    });
+    // Create List Item
+    const createItemRes = await fetch(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ fields: fieldsData }),
+      }
+    );
+
+    const itemData = await createItemRes.json();
+    const itemId = itemData.id;
+
+    // Upload attachments
+    for (const file of selectedFiles) {
+      const fileBuffer = await file.arrayBuffer();
+      const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/add`;
+
+      await fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: file.name,
+          contentBytes: Buffer.from(fileBuffer).toString("base64"),
+        }),
+      });
+    }
 
     setMentionedEmails(emails);
   };
@@ -352,6 +391,20 @@ const CommentForm: React.FC = () => {
                   {new Date(c.CreatedDate).toLocaleString()}
                 </div>
               </div>
+              {c.Attachments && c.Attachments.length > 0 && (
+                <div style={{ marginTop: "8px" }}>
+                  <strong>Attachments:</strong>
+                  <ul style={{ paddingLeft: "20px" }}>
+                    {c.Attachments.map((att: any, i: number) => (
+                      <li key={i}>
+                        <a href={att.contentUrl} target="_blank" rel="noopener noreferrer">
+                          {att.name}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           ))
         ) : (
@@ -413,6 +466,11 @@ const CommentForm: React.FC = () => {
             }}
           />
         </MentionsInput>
+        <input
+          type="file"
+          multiple
+          onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
+        />
       </div>
 
       <button
