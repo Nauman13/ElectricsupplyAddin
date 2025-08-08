@@ -20,6 +20,7 @@ const CommentForm: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [sending, setSending] = useState<boolean>(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [fileInputKey, setFileInputKey] = useState<number>(0);
 
   const waitForMailboxItem = (): Promise<void> => {
     return new Promise((resolve) => {
@@ -63,6 +64,12 @@ const CommentForm: React.FC = () => {
     if (e.target.files) {
       setSelectedFiles([...selectedFiles, ...Array.from(e.target.files)]);
     }
+  };
+
+  const removeFile = (index: number) => {
+    const newFiles = [...selectedFiles];
+    newFiles.splice(index, 1);
+    setSelectedFiles(newFiles);
   };
 
   const initializeMsal = async () => {
@@ -132,6 +139,7 @@ const CommentForm: React.FC = () => {
       const comments = data.value.map((item: any) => ({
         ...item.fields,
         Attachments: item.attachments || [],
+        SharePointId: item.id,
       }));
 
       setCommentHistory(comments);
@@ -188,14 +196,11 @@ const CommentForm: React.FC = () => {
 
     const item = await itemRes.json();
 
-    // Upload attachments
-    for (const file of selectedFiles) {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const arrayBuffer = event.target?.result;
-        if (!arrayBuffer) return;
-
-        const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${item.id}/attachments/${file.name}/content`;
+    // Upload attachments if any
+    if (selectedFiles.length > 0) {
+      for (const file of selectedFiles) {
+        const arrayBuffer = await file.arrayBuffer();
+        const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${item.id}/attachments/${encodeURIComponent(file.name)}/content`;
 
         await fetch(uploadUrl, {
           method: "PUT",
@@ -203,18 +208,18 @@ const CommentForm: React.FC = () => {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/octet-stream",
           },
-          body: arrayBuffer as ArrayBuffer,
+          body: arrayBuffer,
         });
-      };
-      reader.readAsArrayBuffer(file);
+      }
     }
 
     setMentionedEmails(emails);
+    return item.id; // Return the SharePoint item ID
   };
 
   const handleSaveAndShare = async () => {
-    if (!comment.trim()) {
-      alert("Please add a comment before saving.");
+    if (!comment.trim() && selectedFiles.length === 0) {
+      alert("Please add a comment or attach a file before saving.");
       return;
     }
 
@@ -230,6 +235,7 @@ const CommentForm: React.FC = () => {
       setComment("");
       setMentionedEmails([]);
       setSelectedFiles([]);
+      setFileInputKey((prev) => prev + 1); // Reset file input
     } catch (error) {
       console.error("Error saving comment:", error);
     } finally {
@@ -298,6 +304,34 @@ const CommentForm: React.FC = () => {
     });
   };
 
+  const downloadAttachment = async (itemId: string, attachmentId: string, fileName: string) => {
+    try {
+      const token = await getAccessToken();
+      const response = await fetch(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/${attachmentId}/$value`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to download attachment");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error downloading attachment:", error);
+    }
+  };
+
   return (
     <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
       <div
@@ -348,17 +382,28 @@ const CommentForm: React.FC = () => {
               )}
 
               {c.Attachments && c.Attachments.length > 0 && (
-                <div style={{ marginTop: "5px" }}>
+                <div style={{ marginTop: "8px" }}>
                   {c.Attachments.map((att: any, idx: number) => (
-                    <a
+                    <div
                       key={idx}
-                      href={att.ServerRelativeUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ display: "block", fontSize: "12px", color: "#0078d4" }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        marginBottom: "4px",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => downloadAttachment(c.SharePointId, att.id, att.name)}
                     >
-                      📎 {att.FileName}
-                    </a>
+                      <Icon
+                        iconName="Attach"
+                        style={{
+                          fontSize: 14,
+                          marginRight: "6px",
+                          color: "#0078d4",
+                        }}
+                      />
+                      <span style={{ fontSize: "12px", color: "#0078d4" }}>{att.name}</span>
+                    </div>
                   ))}
                 </div>
               )}
@@ -373,53 +418,109 @@ const CommentForm: React.FC = () => {
         )}
       </div>
 
-      <MentionsInput
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        placeholder="Add internal comment..."
-        style={{
-          control: {
-            backgroundColor: "#fff",
-            fontSize: 14,
-            padding: "8px",
-            borderRadius: "10px",
-            border: "1px solid #ccc",
-          },
-          input: { margin: 0, paddingLeft: "10px", border: "none", outline: "none" },
-          suggestions: {
-            list: { backgroundColor: "#fff", border: "1px solid #ccc", fontSize: 14 },
-            item: { padding: "5px 10px" },
-          },
-        }}
-      >
-        <Mention
-          trigger="@"
-          data={people}
-          displayTransform={(_id, display) => `@${display}`}
-          appendSpaceOnAdd
-          onAdd={(id: string) => {
-            if (!mentionedEmails.includes(id)) {
-              setMentionedEmails([...mentionedEmails, id]);
-            }
+      <div style={{ position: "relative" }}>
+        <MentionsInput
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Add internal comment..."
+          style={{
+            control: {
+              backgroundColor: "#fff",
+              fontSize: 14,
+              padding: "8px",
+              borderRadius: "10px",
+              border: "1px solid #ccc",
+              minHeight: "60px",
+              paddingRight: "30px", // Make space for the paperclip icon
+            },
+            input: {
+              margin: 0,
+              paddingLeft: "10px",
+              border: "none",
+              outline: "none",
+              minHeight: "40px",
+            },
+            suggestions: {
+              list: { backgroundColor: "#fff", border: "1px solid #ccc", fontSize: 14 },
+              item: { padding: "5px 10px" },
+            },
           }}
-        />
-      </MentionsInput>
+        >
+          <Mention
+            trigger="@"
+            data={people}
+            displayTransform={(_id, display) => `@${display}`}
+            appendSpaceOnAdd
+            onAdd={(id: string) => {
+              if (!mentionedEmails.includes(id)) {
+                setMentionedEmails([...mentionedEmails, id]);
+              }
+            }}
+          />
+        </MentionsInput>
 
-      {/* Attachment UI */}
-      <div style={{ marginTop: "8px" }}>
-        <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "5px" }}>
-          <Icon iconName="Attach" style={{ fontSize: 18 }} />
-          <span style={{ fontSize: 13 }}>Attach File</span>
-          <input type="file" multiple onChange={handleFileChange} style={{ display: "none" }} />
+        {/* Paperclip icon positioned inside the textarea */}
+        <label
+          style={{
+            position: "absolute",
+            right: "10px",
+            bottom: "10px",
+            cursor: "pointer",
+            zIndex: 1,
+          }}
+          title="Attach file"
+        >
+          <Icon iconName="Attach" style={{ fontSize: 16, color: "#666" }} />
+          <input
+            key={fileInputKey}
+            type="file"
+            multiple
+            onChange={handleFileChange}
+            style={{ display: "none" }}
+          />
         </label>
-        {selectedFiles.length > 0 && (
-          <ul style={{ fontSize: "12px", marginTop: "5px", paddingLeft: "20px" }}>
-            {selectedFiles.map((file, i) => (
-              <li key={i}>📎 {file.name}</li>
-            ))}
-          </ul>
-        )}
       </div>
+
+      {/* Selected files preview */}
+      {selectedFiles.length > 0 && (
+        <div
+          style={{
+            marginTop: "8px",
+            padding: "8px",
+            backgroundColor: "#f5f5f5",
+            borderRadius: "4px",
+          }}
+        >
+          {selectedFiles.map((file, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "4px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <Icon iconName="Attach" style={{ fontSize: 14, marginRight: "6px" }} />
+                <span style={{ fontSize: "12px" }}>{file.name}</span>
+              </div>
+              <button
+                onClick={() => removeFile(i)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#a4262c",
+                  fontSize: "12px",
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <button
         onClick={handleSaveAndShare}
