@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
 import { MentionsInput, Mention } from "react-mentions";
-import { PublicClientApplication } from "@azure/msal-browser";
+import { PublicClientApplication, AuthenticationResult } from "@azure/msal-browser";
 import { msalConfig } from "./msalConfig";
 import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner";
 
@@ -9,8 +9,10 @@ import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner";
 const siteId = "8314c8ba-c25a-4a02-bf25-d6238949ac8f";
 const listId = "5f59364d-9808-4d26-8e04-2527b4fc403e";
 const siteUrl = "https://jwelectricalsupply.sharepoint.com/sites/allcompany";
+const tenantHost = "jwelectricalsupply.sharepoint.com"; // used for SP token scope
 
 const msalInstance = new PublicClientApplication(msalConfig);
+
 interface IAttachment {
   FileName: string;
   ServerRelativeUrl: string;
@@ -36,14 +38,12 @@ const CommentForm: React.FC = () => {
   const [sending, setSending] = useState<boolean>(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
+  // Wait until Office item is available
   const waitForMailboxItem = (): Promise<void> => {
     return new Promise((resolve) => {
       const check = () => {
-        if (Office.context?.mailbox?.item) {
-          resolve();
-        } else {
-          setTimeout(check, 100); // keep checking every 100ms
-        }
+        if (Office.context?.mailbox?.item) resolve();
+        else setTimeout(check, 100);
       };
       check();
     });
@@ -58,13 +58,12 @@ const CommentForm: React.FC = () => {
 
         item.body.getAsync(Office.CoercionType.Html, async (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
-            const bodyContent = result.value;
+            const bodyContent = result.value as string;
             const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
-
-            let convId = match?.[1] || item.conversationId;
-
+            const convId = match?.[1] || (item as any).conversationId;
             if (convId) {
               setConversationId(convId);
+              // fetch comments + attachments
               await fetchCommentsFromSharePoint(convId);
             }
           } else {
@@ -80,33 +79,75 @@ const CommentForm: React.FC = () => {
     fetchUsers();
   }, []);
 
+  // -------------------------
+  // Auth helpers (MSAL)
+  // -------------------------
   const initializeMsal = async () => {
-    await msalInstance.initialize();
+    try {
+      await msalInstance.initialize();
+    } catch (e) {
+      // initialize may throw in some setups; ignore if already initialized
+      console.warn("msal initialize warning:", e);
+    }
   };
 
-  const getAccessToken = async (): Promise<string> => {
+  // Get a Graph token (for Graph calls like create item & send mail)
+  const getGraphToken = async (): Promise<string> => {
     await initializeMsal();
     let accounts = msalInstance.getAllAccounts();
-
     if (accounts.length === 0) {
-      const loginResponse = await msalInstance.loginPopup({
-        scopes: ["User.Read", "Mail.ReadWrite", "Sites.ReadWrite.All"],
+      const loginResp = await msalInstance.loginPopup({
+        scopes: ["User.Read", "Mail.Send", "Mail.ReadWrite", "Sites.ReadWrite.All"],
       });
-      accounts = [loginResponse.account];
+      accounts = [loginResp.account];
     }
 
-    const tokenResponse = await msalInstance.acquireTokenSilent({
-      scopes: ["User.Read", "Mail.ReadWrite", "Sites.ReadWrite.All"],
+    const resp = await msalInstance.acquireTokenSilent({
+      scopes: ["User.Read", "Mail.Send", "Mail.ReadWrite", "Sites.ReadWrite.All"],
       account: accounts[0],
     });
 
-    return tokenResponse.accessToken;
+    return resp.accessToken;
   };
 
+  // Get a SharePoint resource token (audience = https://{tenant}.sharepoint.com)
+  // This token is required for calling _api endpoints (AttachmentFiles).
+  const getSharePointToken = async (): Promise<string> => {
+    await initializeMsal();
+    let accounts = msalInstance.getAllAccounts();
+    if (accounts.length === 0) {
+      const loginResp = await msalInstance.loginPopup({
+        scopes: ["User.Read", "Mail.Send", "Mail.ReadWrite", "Sites.ReadWrite.All"],
+      });
+      accounts = [loginResp.account];
+    }
+
+    // Use resource scope for SharePoint. In v2 endpoints, use offline/.default style scope.
+    // This requires that the app registration has delegated permission for SharePoint.
+    const spScope = `https://${tenantHost}/.default`;
+
+    try {
+      const resp = await msalInstance.acquireTokenSilent({
+        scopes: [spScope],
+        account: accounts[0],
+      });
+      return resp.accessToken;
+    } catch (err) {
+      // fallback to interactive if silent fails
+      const resp = await msalInstance.acquireTokenPopup({
+        scopes: [spScope],
+      });
+      return resp.accessToken;
+    }
+  };
+
+  // -------------------------
+  // Email forward (Graph) - unchanged logic (uses graph token)
+  // -------------------------
   const forwardOriginalEmailToMentionedUsers = async () => {
     if (mentionedEmails.length === 0) return;
 
-    const token = await getAccessToken();
+    const token = await getGraphToken();
 
     Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
       if (result.status !== Office.AsyncResultStatus.Succeeded) {
@@ -114,8 +155,7 @@ const CommentForm: React.FC = () => {
         return;
       }
 
-      let originalBody = result.value;
-
+      let originalBody = result.value as string;
       if (!originalBody.includes("CONVERSATION_ID:")) {
         originalBody += `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${conversationId}</p>`;
       }
@@ -123,9 +163,7 @@ const CommentForm: React.FC = () => {
       const subject = Office.context.mailbox.item.subject;
       const from = Office.context.mailbox.item.from?.emailAddress || "noreply@domain.com";
 
-      const toRecipients = mentionedEmails.map((email) => ({
-        emailAddress: { address: email },
-      }));
+      const toRecipients = mentionedEmails.map((email) => ({ emailAddress: { address: email } }));
 
       const emailPayload = {
         message: {
@@ -133,16 +171,16 @@ const CommentForm: React.FC = () => {
           body: {
             contentType: "HTML",
             content: `
-            <p>Hello,</p>
-            <p>You were mentioned in a conversation. Here's the original email:</p>
-            <hr />
-            <p><strong>From:</strong> ${from}</p>
-            <p><strong>Subject:</strong> ${subject}</p>
-            <hr />
-            ${originalBody}
-            <hr />
-            <p>You can open the Outlook Add-in to view and add comments.</p>
-          `,
+              <p>Hello,</p>
+              <p>You were mentioned in a conversation. Here's the original email:</p>
+              <hr />
+              <p><strong>From:</strong> ${from}</p>
+              <p><strong>Subject:</strong> ${subject}</p>
+              <hr />
+              ${originalBody}
+              <hr />
+              <p>You can open the Outlook Add-in to view and add comments.</p>
+            `,
           },
           toRecipients,
         },
@@ -167,12 +205,17 @@ const CommentForm: React.FC = () => {
     });
   };
 
+  // -------------------------
+  // Users list for Mention suggestions
+  // -------------------------
   const fetchUsers = async () => {
     try {
-      const token = await getAccessToken();
+      const token = await getGraphToken();
       const response = await fetch("https://graph.microsoft.com/v1.0/users?$top=50", {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      if (!response.ok) throw new Error("Failed to fetch users");
 
       const data = await response.json();
       const usersData = data.value.map((user: any) => ({
@@ -187,43 +230,65 @@ const CommentForm: React.FC = () => {
     }
   };
 
+  // -------------------------
+  // Fetch comments (Graph) + fetch attachments per item (SharePoint REST + SP token)
+  // -------------------------
   const fetchCommentsFromSharePoint = async (convId?: string) => {
     const id = convId || conversationId;
     if (!id) return;
 
     setLoading(true);
     try {
-      const token = await getAccessToken();
+      const graphToken = await getGraphToken();
+      const spToken = await getSharePointToken();
 
-      // 1️⃣ Pehle Graph API se list items fetch karo (sirf fields ke liye)
       const emailIdValue = encodeURIComponent(id);
       const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
 
       const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${graphToken}` },
       });
+
+      if (!response.ok) {
+        const txt = await response.text();
+        throw new Error(`Failed to fetch list items: ${txt}`);
+      }
 
       const data = await response.json();
 
-      // 2️⃣ Har item ke attachments SharePoint REST API se fetch karo
       const comments = await Promise.all(
         data.value.map(async (item: any) => {
-          const fields = item.fields;
+          const fields: ICommentFields = item.fields || ({} as ICommentFields);
 
-          // SharePoint REST API attachments endpoint
-          const attachmentsRes = await fetch(
-            `${siteUrl}/_api/web/lists(guid'${listId}')/items(${item.id})/AttachmentFiles`,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: "application/json;odata=verbose",
-              },
+          // Fetch attachments for this list item using SharePoint REST and spToken
+          try {
+            const attRes = await fetch(
+              `${siteUrl}/_api/web/lists(guid'${listId}')/items(${item.id})/AttachmentFiles`,
+              {
+                headers: {
+                  Authorization: `Bearer ${spToken}`,
+                  Accept: "application/json;odata=verbose",
+                },
+              }
+            );
+
+            if (attRes.ok) {
+              const attJson = await attRes.json();
+              // odata verbose shape: attJson.d.results
+              fields.Attachments = attJson.d?.results || [];
+            } else {
+              // if 401/403/other, set empty attachments and log
+              console.warn(
+                `Attachment fetch failed for item ${item.id}:`,
+                attRes.status,
+                await attRes.text()
+              );
+              fields.Attachments = [];
             }
-          );
-
-          const attachmentsData = await attachmentsRes.json();
-          fields.Attachments = attachmentsData.d?.results || [];
-          console.log(attachmentsData, " attachmentsData");
+          } catch (attErr) {
+            console.error("Attachment fetch error:", attErr);
+            fields.Attachments = [];
+          }
 
           return fields;
         })
@@ -237,6 +302,9 @@ const CommentForm: React.FC = () => {
     }
   };
 
+  // -------------------------
+  // Mention helpers
+  // -------------------------
   const stripMentionsFromComment = (input: string): string => {
     return input.replace(/@\[[^\]]+\]\([^)]+\)/g, "").trim();
   };
@@ -254,20 +322,14 @@ const CommentForm: React.FC = () => {
 
     return { displayNames, emails };
   };
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        resolve(result.split(",")[1]); // remove data:*/*;base64, prefix
-      };
-      reader.onerror = (error) => reject(error);
-      reader.readAsDataURL(file);
-    });
-  };
 
+  // -------------------------
+  // Save comment -> create list item (Graph) then upload attachments (SP REST using spToken)
+  // -------------------------
   const saveCommentToSharePoint = async () => {
-    const token = await getAccessToken();
+    const graphToken = await getGraphToken();
+    const spToken = await getSharePointToken();
+
     const plainComment = stripMentionsFromComment(comment);
     const { displayNames, emails } = extractMentionData(comment);
 
@@ -280,42 +342,60 @@ const CommentForm: React.FC = () => {
       CreatedDate: new Date().toISOString(),
     };
 
-    // 1️⃣ Create List Item
+    // Create List Item via Graph
     const createItemRes = await fetch(
       `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${graphToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ fields: fieldsData }),
       }
     );
 
+    if (!createItemRes.ok) {
+      const errText = await createItemRes.text();
+      throw new Error(`Failed creating list item: ${errText}`);
+    }
+
     const itemData = await createItemRes.json();
     const itemId = itemData.id;
 
-    // 2️⃣ Upload attachments using SharePoint REST API (browser-safe)
+    // Upload attachments to this item using SharePoint REST (SP token)
     for (const file of selectedFiles) {
-      const arrayBuffer = await file.arrayBuffer();
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const uploadUrl = `${siteUrl}/_api/web/lists(guid'${listId}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(
+          file.name
+        )}')`;
 
-      await fetch(
-        `${siteUrl}/_api/web/lists(guid'${listId}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(file.name)}')`,
-        {
+        const uploadRes = await fetch(uploadUrl, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${spToken}`,
             Accept: "application/json;odata=verbose",
+            // Do not set Content-Type for binary body in many browsers; let fetch handle it.
           },
-          body: arrayBuffer, // directly pass binary content
+          body: arrayBuffer,
+        });
+
+        if (!uploadRes.ok) {
+          const t = await uploadRes.text();
+          console.warn(`Upload failed for ${file.name}:`, uploadRes.status, t);
         }
-      );
+      } catch (e) {
+        console.error("Upload attachment error:", e);
+      }
     }
 
     setMentionedEmails(emails);
   };
 
+  // -------------------------
+  // Save + refresh + optionally notify mentioned users
+  // -------------------------
   const handleSaveAndShare = async () => {
     if (!comment.trim()) {
       alert("Please add a comment before saving.");
@@ -336,11 +416,15 @@ const CommentForm: React.FC = () => {
       setSelectedFiles([]);
     } catch (error) {
       console.error("Error saving comment:", error);
+      alert("Error saving comment. Check console for details.");
     } finally {
       setSending(false);
     }
   };
 
+  // -------------------------
+  // JSX UI - kept identical to your original (only internal logic changed)
+  // -------------------------
   return (
     <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
       <div
