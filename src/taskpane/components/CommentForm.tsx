@@ -169,29 +169,37 @@ const CommentForm: React.FC = () => {
 
     return { displayNames, emails };
   };
-  const getRequestDigest = async (): Promise<string> => {
-    const response = await fetch(`${SiteUrl}/_api/contextinfo`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json;odata=verbose",
-      },
-    });
-
-    const data = await response.json();
-
-    const digestValue = data?.GetContextWebInformation?.FormDigestValue || data?.FormDigestValue;
-
-    if (!digestValue) {
-      throw new Error("Failed to retrieve FormDigestValue from contextinfo response");
-    }
-
-    return digestValue;
-  };
 
   const saveCommentToSharePoint = async () => {
     const token = await getAccessToken();
     const plainComment = stripMentionsFromComment(comment);
     const { displayNames, emails } = extractMentionData(comment);
+
+    const attachmentUrls: string[] = [];
+
+    if (selectedFiles.length > 0) {
+      for (const file of selectedFiles) {
+        const uploadRes = await fetch(
+          `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/Comments/${file.name}:/content`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": file.type,
+            },
+            body: file,
+          }
+        );
+
+        if (!uploadRes.ok) {
+          console.error(`Failed to upload ${file.name}:`, await uploadRes.text());
+          continue;
+        }
+
+        const uploaded = await uploadRes.json();
+        attachmentUrls.push(uploaded.webUrl);
+      }
+    }
 
     const fieldsData: any = {
       Title: "Email Comment",
@@ -200,9 +208,9 @@ const CommentForm: React.FC = () => {
       MentionedUsers: displayNames.join(", "),
       CreatedBy: Office.context.mailbox.userProfile.displayName,
       CreatedDate: new Date().toISOString(),
+      AttachmentLinks: attachmentUrls.join("; "),
     };
 
-    // First create the list item
     const itemRes = await fetch(
       `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`,
       {
@@ -220,35 +228,10 @@ const CommentForm: React.FC = () => {
     }
 
     const item = await itemRes.json();
-    const itemId = item.id;
-
-    // Upload attachments if any
-    if (selectedFiles.length > 0) {
-      const digest = await getRequestDigest();
-
-      for (const file of selectedFiles) {
-        const arrayBuffer = await file.arrayBuffer();
-        const uploadUrl = `${SiteUrl}/_api/web/lists/getbytitle('${listName}')/items(${itemId})/AttachmentFiles/add(FileName='${file.name}')`;
-
-        const uploadRes = await fetch(uploadUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-RequestDigest": digest,
-            Accept: "application/json;odata=verbose",
-            "Content-Length": arrayBuffer.byteLength.toString(),
-          },
-          body: arrayBuffer,
-        });
-
-        if (!uploadRes.ok) {
-          console.error(`Failed to upload ${file.name}:`, await uploadRes.text());
-        }
-      }
-    }
-
     setMentionedEmails(emails);
-    return itemId;
+    return item.id;
+
+    // return itemId;
   };
 
   // Helper function to convert ArrayBuffer to Base64
