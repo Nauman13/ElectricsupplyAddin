@@ -8,6 +8,8 @@ import { Icon } from "@fluentui/react/lib/Icon";
 
 const siteId = "8314c8ba-c25a-4a02-bf25-d6238949ac8f";
 const listId = "5f59364d-9808-4d26-8e04-2527b4fc403e";
+const listName = "EmailComments";
+const SiteUrl = `https://jwelectricalsupply.sharepoint.com/sites/allcompany`;
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -167,6 +169,17 @@ const CommentForm: React.FC = () => {
 
     return { displayNames, emails };
   };
+  const getRequestDigest = async (): Promise<string> => {
+    const response = await fetch(`${SiteUrl}/_api/contextinfo`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json;odata=verbose",
+      },
+    });
+
+    const data = await response.json();
+    return data.d.GetContextWebInformation.FormDigestValue;
+  };
 
   const saveCommentToSharePoint = async () => {
     const token = await getAccessToken();
@@ -204,29 +217,25 @@ const CommentForm: React.FC = () => {
 
     // Upload attachments if any
     if (selectedFiles.length > 0) {
+      const digest = await getRequestDigest();
+
       for (const file of selectedFiles) {
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments`;
+        const arrayBuffer = await file.arrayBuffer();
+        const uploadUrl = `${SiteUrl}/_api/web/lists/getbytitle('${listName}')/items(${itemId})/AttachmentFiles/add(FileName='${file.name}')`;
 
-          const attachmentRes = await fetch(uploadUrl, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              name: file.name,
-              contentBytes: arrayBufferToBase64(arrayBuffer),
-            }),
-          });
+        const uploadRes = await fetch(uploadUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "X-RequestDigest": digest,
+            Accept: "application/json;odata=verbose",
+            "Content-Length": arrayBuffer.byteLength.toString(),
+          },
+          body: arrayBuffer,
+        });
 
-          if (!attachmentRes.ok) {
-            console.error(`Failed to upload ${file.name}:`, await attachmentRes.text());
-            continue;
-          }
-        } catch (error) {
-          console.error(`Error uploading ${file.name}:`, error);
+        if (!uploadRes.ok) {
+          console.error(`Failed to upload ${file.name}:`, await uploadRes.text());
         }
       }
     }
