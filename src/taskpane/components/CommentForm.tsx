@@ -404,10 +404,12 @@ const CommentForm: React.FC = () => {
       if (mentionedEmails.length > 0) {
         await forwardOriginalEmailToMentionedUsers();
       }
-
       setComment("");
       setMentionedEmails([]);
       setSelectedFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } catch (error) {
       console.error("Error saving comment:", error);
       alert("Error saving comment. Check console for details.");
@@ -415,10 +417,8 @@ const CommentForm: React.FC = () => {
       setSending(false);
     }
   };
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // -------------------------
-  // JSX UI - kept identical to your original (attachments shown as LINKS now)
-  // -------------------------
   return (
     <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
       <div
@@ -588,6 +588,7 @@ const CommentForm: React.FC = () => {
         <input
           type="file"
           multiple
+          ref={fileInputRef}
           onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
         />
       </div>
