@@ -506,7 +506,7 @@ const CommentForm: React.FC = () => {
                     <ul style={{ margin: "6px 0 0 0", paddingLeft: 18 }}>
                       {c.Attachments.map((file: any, idx: number) => {
                         // Build full URL from ServerRelativeUrl
-                        const fileUrl = `${siteUrl}${file.ServerRelativeUrl}`;
+                        const fileUrl = `https://${tenantHost}${file.ServerRelativeUrl}`;
                         return (
                           <li key={idx} style={{ marginBottom: 6 }}>
                             <a
