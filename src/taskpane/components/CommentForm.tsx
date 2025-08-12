@@ -84,19 +84,7 @@ const CommentForm: React.FC = () => {
   // -------------------------
   const initializeMsal = async () => {
     try {
-      // Define authUrl or remove dialog logic if not needed
-      const authUrl = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"; // Example URL, replace with your actual auth endpoint if needed
-      Office.context.ui.displayDialogAsync(authUrl, { height: 60, width: 30 }, (result) => {
-        const dialog = result.value;
-        // listen for message containing token
-        dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
-          if ("message" in arg) {
-            const token = arg.message; // returned token
-            // You can use the token here as needed
-          }
-          dialog.close();
-        });
-      });
+      await msalInstance.initialize();
     } catch (e) {
       console.warn("msal initialize warning:", e);
     }
