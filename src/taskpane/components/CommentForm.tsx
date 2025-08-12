@@ -238,8 +238,8 @@ const CommentForm: React.FC = () => {
       const graphToken = await getGraphToken();
       const spToken = await getSharePointToken();
 
-      const emailIdValue = encodeURIComponent(id);
-      const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
+      // Get all items without $filter
+      const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&$orderby=createdDateTime asc`;
 
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${graphToken}` },
@@ -252,11 +252,17 @@ const CommentForm: React.FC = () => {
 
       const data = await response.json();
 
+      // Match ignoring trailing '='
+      const normalizedId = id.trim().replace(/=+$/, "");
+      const filteredItems = data.value.filter((item: any) => {
+        const storedId = (item.fields?.EmailID || "").trim().replace(/=+$/, "");
+        return storedId === normalizedId;
+      });
+
       const comments = await Promise.all(
-        data.value.map(async (item: any) => {
+        filteredItems.map(async (item: any) => {
           const fields: ICommentFields = item.fields || ({} as ICommentFields);
 
-          // Fetch attachments for this list item using SharePoint REST and spToken
           try {
             const attRes = await fetch(
               `${siteUrl}/_api/web/lists(guid'${listId}')/items(${item.id})/AttachmentFiles`,
@@ -270,18 +276,11 @@ const CommentForm: React.FC = () => {
 
             if (attRes.ok) {
               const attJson = await attRes.json();
-              // odata verbose shape: attJson.d.results
               fields.Attachments = attJson.d?.results || [];
             } else {
-              console.warn(
-                `Attachment fetch failed for item ${item.id}:`,
-                attRes.status,
-                await attRes.text()
-              );
               fields.Attachments = [];
             }
-          } catch (attErr) {
-            console.error("Attachment fetch error:", attErr);
+          } catch {
             fields.Attachments = [];
           }
 
