@@ -28,18 +28,6 @@ interface ICommentFields {
   Attachments?: IAttachment[];
 }
 
-// Normalize conversation ID by trimming trailing '=' and lowercasing
-const normalizeConversationId = (val: string) =>
-  (val || "").trim().replace(/=+$/, "").toLowerCase();
-
-// Encode email for SharePoint (replace '.' with '=2E')
-const encodeEmailForSharePoint = (email: string) =>
-  (email || "").toLowerCase().replace(/\./g, "=2E");
-
-// Decode email from SharePoint (reverse '=2E' to '.')
-const decodeEmailFromSharePoint = (email: string) =>
-  (email || "").toLowerCase().replace(/=2e/g, ".");
-
 const CommentForm: React.FC = () => {
   const [comment, setComment] = useState("");
   const [commentHistory, setCommentHistory] = useState<ICommentFields[]>([]);
@@ -60,6 +48,8 @@ const CommentForm: React.FC = () => {
   const ensureAccount = async (): Promise<void> => {
     const accounts = msalInstance.getAllAccounts();
     if (accounts.length === 0) {
+      // Try to see if fallback interaction is possible via popup
+      // We don't use auth.html or dialog; we use popup-based flow for both Desktop & Web.
       await msalInstance.loginPopup({
         scopes: ["User.Read", "Mail.Send", "Mail.ReadWrite", "Sites.ReadWrite.All"],
       });
@@ -68,6 +58,7 @@ const CommentForm: React.FC = () => {
 
   // Unified token getter for Graph & SharePoint - popup-based fallback (no auth.html)
   const getToken = async (scopes: string[]): Promise<string> => {
+    // Try silent first
     try {
       const accounts = msalInstance.getAllAccounts();
       if (accounts.length > 0) {
@@ -78,6 +69,7 @@ const CommentForm: React.FC = () => {
         return resp.accessToken;
       }
 
+      // No account available — ensure account via popup login
       await msalInstance.loginPopup({ scopes });
       const newAccounts = msalInstance.getAllAccounts();
       if (newAccounts.length === 0) throw new Error("No account after loginPopup.");
@@ -88,6 +80,7 @@ const CommentForm: React.FC = () => {
       });
       return resp2.accessToken;
     } catch (err: any) {
+      // If silent fails due to interaction required, fallback to popup
       try {
         const popupResp: AuthenticationResult = await msalInstance.acquireTokenPopup({
           scopes,
@@ -123,10 +116,9 @@ const CommentForm: React.FC = () => {
         item.body.getAsync(Office.CoercionType.Html, async (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
             const bodyContent = result.value as string;
-            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-+=]+)/);
-            const convIdRaw = match?.[1] || (item as any).conversationId;
-            if (convIdRaw) {
-              const convId = normalizeConversationId(convIdRaw);
+            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
+            const convId = match?.[1] || (item as any).conversationId;
+            if (convId) {
               setConversationId(convId);
               await fetchCommentsFromSharePoint(convId);
             }
@@ -163,8 +155,8 @@ const CommentForm: React.FC = () => {
     }
   };
 
-  const fetchCommentsFromSharePoint = async (convIdParam?: string) => {
-    const id = convIdParam || conversationId;
+  const fetchCommentsFromSharePoint = async (convId?: string) => {
+    const id = convId || conversationId;
     if (!id) return;
     setLoading(true);
     try {
@@ -177,28 +169,18 @@ const CommentForm: React.FC = () => {
       });
       if (!response.ok) throw new Error("Failed to fetch list items");
 
-      // Normalize conversation ID to match stored emailID field
-      const normalizedId = normalizeConversationId(id);
-
       const data = await response.json();
+      const normalizeId = (val: string) => (val || "").trim().replace(/=+$/, "").toLowerCase();
+      const normalizedId = normalizeId(id);
 
-      // Filter items by normalized EmailID, decoding stored email in SharePoint to match
       const filteredItems = data.value.filter((item: any) => {
-        const storedIdRaw = item.fields?.EmailID || "";
-        const storedIdDecoded = decodeEmailFromSharePoint(normalizeConversationId(storedIdRaw));
-        return storedIdDecoded === normalizedId;
+        const storedId = normalizeId(item.fields?.EmailID || "");
+        return storedId === normalizedId;
       });
 
       const comments = await Promise.all(
         filteredItems.map(async (item: any) => {
           const fields: ICommentFields = item.fields || ({} as ICommentFields);
-          // Decode MentionedUsers emails if needed (optional, depending on usage)
-          if (fields.MentionedUsers) {
-            fields.MentionedUsers = fields.MentionedUsers.split(",")
-              .map((name) => name.trim())
-              .join(", ");
-          }
-
           try {
             const attRes = await fetch(
               `${siteUrl}/_api/web/lists(guid'${listId}')/items(${item.id})/AttachmentFiles`,
@@ -254,7 +236,7 @@ const CommentForm: React.FC = () => {
 
     const fieldsData: any = {
       Title: "Email Comment",
-      EmailID: normalizeConversationId(conversationId),
+      EmailID: conversationId,
       Comment: plainComment,
       MentionedUsers: displayNames.join(", "),
       CreatedBy: Office.context.mailbox.userProfile.displayName,
@@ -281,9 +263,7 @@ const CommentForm: React.FC = () => {
     for (const file of selectedFiles) {
       try {
         const arrayBuffer = await file.arrayBuffer();
-        const uploadUrl = `${siteUrl}/_api/web/lists(guid'${listId}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(
-          file.name
-        )}')`;
+        const uploadUrl = `${siteUrl}/_api/web/lists(guid'${listId}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(file.name)}')`;
         await fetch(uploadUrl, {
           method: "POST",
           headers: {
@@ -297,8 +277,7 @@ const CommentForm: React.FC = () => {
       }
     }
 
-    // Store encoded emails for forwarding (encode here)
-    setMentionedEmails(emails.map((email) => encodeEmailForSharePoint(email)));
+    setMentionedEmails(emails);
   };
 
   const forwardOriginalEmailToMentionedUsers = async () => {
@@ -310,18 +289,12 @@ const CommentForm: React.FC = () => {
 
       let originalBody = result.value as string;
       if (!originalBody.includes("CONVERSATION_ID:")) {
-        originalBody += `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${normalizeConversationId(
-          conversationId
-        )}</p>`;
+        originalBody += `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${conversationId}</p>`;
       }
 
       const subject = Office.context.mailbox.item.subject;
       const from = Office.context.mailbox.item.from?.emailAddress || "noreply@domain.com";
-
-      // Decode emails for sending in ToRecipients
-      const toRecipients = mentionedEmails.map((email) => ({
-        emailAddress: { address: decodeEmailFromSharePoint(email) },
-      }));
+      const toRecipients = mentionedEmails.map((email) => ({ emailAddress: { address: email } }));
 
       const emailPayload = {
         message: {
@@ -507,55 +480,57 @@ const CommentForm: React.FC = () => {
               borderRadius: "10px",
               border: "1px solid #ccc",
             },
-            input: { margin: 0, padding: 0, outline: 0, border: 0 },
-            highlighter: { padding: 9 },
+            input: { margin: 0, paddingLeft: "10px", border: "none" },
             suggestions: {
-              list: { backgroundColor: "white", border: "1px solid #ccc" },
-              item: { padding: "5px 15px", cursor: "pointer" },
+              list: { backgroundColor: "#fff", border: "1px solid #ccc" },
+              item: { padding: "5px 10px", "&focused": { backgroundColor: "#e6f0ff" } },
             },
           }}
-          a11ySuggestionsListLabel={"Suggested people"}
-          markup="@[__display__](__id__)"
         >
           <Mention
             trigger="@"
             data={people}
             displayTransform={(_id, display) => `@${display}`}
-            appendSpaceOnAdd={true}
-            style={{ backgroundColor: "#daf4fa" }}
+            appendSpaceOnAdd
+            onAdd={(id: string) => {
+              if (!mentionedEmails.includes(id)) {
+                setMentionedEmails([...mentionedEmails, id]);
+              }
+            }}
           />
         </MentionsInput>
-      </div>
-
-      {/* ATTACHMENTS */}
-      <div style={{ marginBottom: "12px" }}>
         <input
-          ref={fileInputRef}
           type="file"
           multiple
-          onChange={(e) => {
-            if (e.target.files) setSelectedFiles(Array.from(e.target.files));
-          }}
+          ref={fileInputRef}
+          onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
         />
       </div>
 
-      {/* ACTION BUTTONS */}
-      <div>
-        <button
-          onClick={handleSaveAndShare}
-          disabled={sending || loading}
-          style={{
-            backgroundColor: "#0078d4",
-            color: "#fff",
-            border: "none",
-            padding: "8px 16px",
-            borderRadius: "6px",
-            cursor: sending || loading ? "not-allowed" : "pointer",
-          }}
-        >
-          {sending ? "Saving..." : "Save & Share"}
-        </button>
-      </div>
+      <button
+        onClick={handleSaveAndShare}
+        disabled={sending}
+        style={{
+          backgroundColor: sending ? "#a0a0a0" : "#0078D4",
+          color: "#fff",
+          border: "none",
+          padding: "10px 16px",
+          borderRadius: "5px",
+          float: "right",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          cursor: sending ? "not-allowed" : "pointer",
+        }}
+      >
+        {sending ? (
+          <>
+            <Spinner size={SpinnerSize.xSmall} /> Sending...
+          </>
+        ) : (
+          "Send"
+        )}
+      </button>
     </div>
   );
 };
