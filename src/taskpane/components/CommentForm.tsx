@@ -239,9 +239,7 @@ const CommentForm: React.FC = () => {
       const spToken = await getSharePointToken();
 
       const emailIdValue = id.replace(/'/g, "''");
-      const url =
-        `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items` +
-        `?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
+      const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
 
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${graphToken}` },
