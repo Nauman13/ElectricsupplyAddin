@@ -174,6 +174,7 @@ const CommentForm: React.FC = () => {
               <hr />
               ${originalBody}
               <hr />
+              <p><strong>Comment:</strong> ${comment}</p>
               <p>You can open the Outlook Add-in to view and add comments.</p>
             `,
           },
