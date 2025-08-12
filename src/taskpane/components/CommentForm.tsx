@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useState, useEffect, useRef } from "react";
 import { MentionsInput, Mention } from "react-mentions";
-import { PublicClientApplication } from "@azure/msal-browser";
+import { PublicClientApplication, AuthenticationResult } from "@azure/msal-browser";
 import { msalConfig } from "./msalConfig";
 import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner";
 
@@ -28,6 +28,18 @@ interface ICommentFields {
   Attachments?: IAttachment[];
 }
 
+// Normalize conversation ID by trimming trailing '=' and lowercasing
+const normalizeConversationId = (val: string) =>
+  (val || "").trim().replace(/=+$/, "").toLowerCase();
+
+// Encode email for SharePoint (replace '.' with '=2E')
+const encodeEmailForSharePoint = (email: string) =>
+  (email || "").toLowerCase().replace(/\./g, "=2E");
+
+// Decode email from SharePoint (reverse '=2E' to '.')
+const decodeEmailFromSharePoint = (email: string) =>
+  (email || "").toLowerCase().replace(/=2e/g, ".");
+
 const CommentForm: React.FC = () => {
   const [comment, setComment] = useState("");
   const [commentHistory, setCommentHistory] = useState<ICommentFields[]>([]);
@@ -44,58 +56,47 @@ const CommentForm: React.FC = () => {
   const isOutlookDesktop = () =>
     Office.context?.host === Office.HostType.Outlook && !Office.context.ui.messageParent;
 
-  // Unified token getter for Graph & SharePoint
-  const getToken = async (scopes: string[]): Promise<string> => {
-    let accounts = msalInstance.getAllAccounts();
-
+  // Helper: ensure there is an active account in MSAL (used before silent token)
+  const ensureAccount = async (): Promise<void> => {
+    const accounts = msalInstance.getAllAccounts();
     if (accounts.length === 0) {
-      if (isOutlookDesktop()) {
-        // Desktop → use Office Dialog API to avoid popup blocking
-        await new Promise<void>((resolve, reject) => {
-          const authUrl = `${window.location.origin}/auth.html`;
-          Office.context.ui.displayDialogAsync(
-            authUrl,
-            { height: 60, width: 30 },
-            (asyncResult) => {
-              if (asyncResult.status !== Office.AsyncResultStatus.Succeeded) {
-                reject(new Error("Dialog failed to open."));
-                return;
-              }
-              const dialog = asyncResult.value;
-              dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
-                try {
-                  if ("message" in arg) {
-                    const data = JSON.parse(arg.message);
-                    msalInstance.setActiveAccount(data.account);
-                    dialog.close();
-                    resolve();
-                  } else {
-                    reject(new Error("Dialog message missing 'message' property."));
-                  }
-                } catch (err) {
-                  reject(err);
-                }
-              });
-            }
-          );
-        });
-        accounts = msalInstance.getAllAccounts();
-      } else {
-        // Browser → normal popup
-        const loginResp = await msalInstance.loginPopup({ scopes });
-        accounts = [loginResp.account];
-      }
-    }
-
-    try {
-      const resp = await msalInstance.acquireTokenSilent({
-        scopes,
-        account: accounts[0],
+      await msalInstance.loginPopup({
+        scopes: ["User.Read", "Mail.Send", "Mail.ReadWrite", "Sites.ReadWrite.All"],
       });
-      return resp.accessToken;
-    } catch {
-      const resp = await msalInstance.acquireTokenPopup({ scopes });
-      return resp.accessToken;
+    }
+  };
+
+  // Unified token getter for Graph & SharePoint - popup-based fallback (no auth.html)
+  const getToken = async (scopes: string[]): Promise<string> => {
+    try {
+      const accounts = msalInstance.getAllAccounts();
+      if (accounts.length > 0) {
+        const resp = await msalInstance.acquireTokenSilent({
+          scopes,
+          account: accounts[0],
+        });
+        return resp.accessToken;
+      }
+
+      await msalInstance.loginPopup({ scopes });
+      const newAccounts = msalInstance.getAllAccounts();
+      if (newAccounts.length === 0) throw new Error("No account after loginPopup.");
+
+      const resp2 = await msalInstance.acquireTokenSilent({
+        scopes,
+        account: newAccounts[0],
+      });
+      return resp2.accessToken;
+    } catch (err: any) {
+      try {
+        const popupResp: AuthenticationResult = await msalInstance.acquireTokenPopup({
+          scopes,
+        });
+        return popupResp.accessToken;
+      } catch (popupErr) {
+        console.error("Token acquisition failed (popup):", popupErr);
+        throw popupErr;
+      }
     }
   };
 
@@ -122,9 +123,10 @@ const CommentForm: React.FC = () => {
         item.body.getAsync(Office.CoercionType.Html, async (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
             const bodyContent = result.value as string;
-            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
-            const convId = match?.[1] || (item as any).conversationId;
-            if (convId) {
+            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-+=]+)/);
+            const convIdRaw = match?.[1] || (item as any).conversationId;
+            if (convIdRaw) {
+              const convId = normalizeConversationId(convIdRaw);
               setConversationId(convId);
               await fetchCommentsFromSharePoint(convId);
             }
@@ -161,8 +163,8 @@ const CommentForm: React.FC = () => {
     }
   };
 
-  const fetchCommentsFromSharePoint = async (convId?: string) => {
-    const id = convId || conversationId;
+  const fetchCommentsFromSharePoint = async (convIdParam?: string) => {
+    const id = convIdParam || conversationId;
     if (!id) return;
     setLoading(true);
     try {
@@ -175,18 +177,28 @@ const CommentForm: React.FC = () => {
       });
       if (!response.ok) throw new Error("Failed to fetch list items");
 
-      const data = await response.json();
-      const normalizeId = (val: string) => (val || "").trim().replace(/=+$/, "").toLowerCase();
-      const normalizedId = normalizeId(id);
+      // Normalize conversation ID to match stored emailID field
+      const normalizedId = normalizeConversationId(id);
 
+      const data = await response.json();
+
+      // Filter items by normalized EmailID, decoding stored email in SharePoint to match
       const filteredItems = data.value.filter((item: any) => {
-        const storedId = normalizeId(item.fields?.EmailID || "");
-        return storedId === normalizedId;
+        const storedIdRaw = item.fields?.EmailID || "";
+        const storedIdDecoded = decodeEmailFromSharePoint(normalizeConversationId(storedIdRaw));
+        return storedIdDecoded === normalizedId;
       });
 
       const comments = await Promise.all(
         filteredItems.map(async (item: any) => {
           const fields: ICommentFields = item.fields || ({} as ICommentFields);
+          // Decode MentionedUsers emails if needed (optional, depending on usage)
+          if (fields.MentionedUsers) {
+            fields.MentionedUsers = fields.MentionedUsers.split(",")
+              .map((name) => name.trim())
+              .join(", ");
+          }
+
           try {
             const attRes = await fetch(
               `${siteUrl}/_api/web/lists(guid'${listId}')/items(${item.id})/AttachmentFiles`,
@@ -242,7 +254,7 @@ const CommentForm: React.FC = () => {
 
     const fieldsData: any = {
       Title: "Email Comment",
-      EmailID: conversationId,
+      EmailID: normalizeConversationId(conversationId),
       Comment: plainComment,
       MentionedUsers: displayNames.join(", "),
       CreatedBy: Office.context.mailbox.userProfile.displayName,
@@ -269,7 +281,9 @@ const CommentForm: React.FC = () => {
     for (const file of selectedFiles) {
       try {
         const arrayBuffer = await file.arrayBuffer();
-        const uploadUrl = `${siteUrl}/_api/web/lists(guid'${listId}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(file.name)}')`;
+        const uploadUrl = `${siteUrl}/_api/web/lists(guid'${listId}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(
+          file.name
+        )}')`;
         await fetch(uploadUrl, {
           method: "POST",
           headers: {
@@ -283,7 +297,8 @@ const CommentForm: React.FC = () => {
       }
     }
 
-    setMentionedEmails(emails);
+    // Store encoded emails for forwarding (encode here)
+    setMentionedEmails(emails.map((email) => encodeEmailForSharePoint(email)));
   };
 
   const forwardOriginalEmailToMentionedUsers = async () => {
@@ -295,12 +310,18 @@ const CommentForm: React.FC = () => {
 
       let originalBody = result.value as string;
       if (!originalBody.includes("CONVERSATION_ID:")) {
-        originalBody += `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${conversationId}</p>`;
+        originalBody += `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${normalizeConversationId(
+          conversationId
+        )}</p>`;
       }
 
       const subject = Office.context.mailbox.item.subject;
       const from = Office.context.mailbox.item.from?.emailAddress || "noreply@domain.com";
-      const toRecipients = mentionedEmails.map((email) => ({ emailAddress: { address: email } }));
+
+      // Decode emails for sending in ToRecipients
+      const toRecipients = mentionedEmails.map((email) => ({
+        emailAddress: { address: decodeEmailFromSharePoint(email) },
+      }));
 
       const emailPayload = {
         message: {
@@ -486,57 +507,55 @@ const CommentForm: React.FC = () => {
               borderRadius: "10px",
               border: "1px solid #ccc",
             },
-            input: { margin: 0, paddingLeft: "10px", border: "none" },
+            input: { margin: 0, padding: 0, outline: 0, border: 0 },
+            highlighter: { padding: 9 },
             suggestions: {
-              list: { backgroundColor: "#fff", border: "1px solid #ccc" },
-              item: { padding: "5px 10px", "&focused": { backgroundColor: "#e6f0ff" } },
+              list: { backgroundColor: "white", border: "1px solid #ccc" },
+              item: { padding: "5px 15px", cursor: "pointer" },
             },
           }}
+          a11ySuggestionsListLabel={"Suggested people"}
+          markup="@[__display__](__id__)"
         >
           <Mention
             trigger="@"
             data={people}
             displayTransform={(_id, display) => `@${display}`}
-            appendSpaceOnAdd
-            onAdd={(id: string) => {
-              if (!mentionedEmails.includes(id)) {
-                setMentionedEmails([...mentionedEmails, id]);
-              }
-            }}
+            appendSpaceOnAdd={true}
+            style={{ backgroundColor: "#daf4fa" }}
           />
         </MentionsInput>
+      </div>
+
+      {/* ATTACHMENTS */}
+      <div style={{ marginBottom: "12px" }}>
         <input
+          ref={fileInputRef}
           type="file"
           multiple
-          ref={fileInputRef}
-          onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
+          onChange={(e) => {
+            if (e.target.files) setSelectedFiles(Array.from(e.target.files));
+          }}
         />
       </div>
 
-      <button
-        onClick={handleSaveAndShare}
-        disabled={sending}
-        style={{
-          backgroundColor: sending ? "#a0a0a0" : "#0078D4",
-          color: "#fff",
-          border: "none",
-          padding: "10px 16px",
-          borderRadius: "5px",
-          float: "right",
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          cursor: sending ? "not-allowed" : "pointer",
-        }}
-      >
-        {sending ? (
-          <>
-            <Spinner size={SpinnerSize.xSmall} /> Sending...
-          </>
-        ) : (
-          "Send"
-        )}
-      </button>
+      {/* ACTION BUTTONS */}
+      <div>
+        <button
+          onClick={handleSaveAndShare}
+          disabled={sending || loading}
+          style={{
+            backgroundColor: "#0078d4",
+            color: "#fff",
+            border: "none",
+            padding: "8px 16px",
+            borderRadius: "6px",
+            cursor: sending || loading ? "not-allowed" : "pointer",
+          }}
+        >
+          {sending ? "Saving..." : "Save & Share"}
+        </button>
+      </div>
     </div>
   );
 };
