@@ -13,9 +13,9 @@
   <Description DefaultValue="Forward emails or add TransitChat in CC."/>
   <IconUrl DefaultValue="https://electricsupply-addin.vercel.app/assets/icon-64.png"/>
   <HighResolutionIconUrl DefaultValue="https://electricsupply-addin.vercel.app/assets/icon-128.png"/>
-  <SupportUrl DefaultValue="https://www.contoso.com/help"/>
+  <SupportUrl DefaultValue="https://graph.microsoft.com/help"/>
   <AppDomains>
-    <AppDomain>https://www.contoso.com</AppDomain>
+    <AppDomain>https://graph.microsoft.com</AppDomain>
     <AppDomain>https://electricsupply-addin.vercel.app/</AppDomain>
   </AppDomains>
   <Hosts>
