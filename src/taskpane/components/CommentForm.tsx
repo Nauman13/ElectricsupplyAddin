@@ -59,7 +59,7 @@ const CommentForm: React.FC = () => {
         item.body.getAsync(Office.CoercionType.Html, async (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
             const bodyContent = result.value as string;
-            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
+            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-=]+)/);
             const convId = match?.[1] || (item as any).conversationId;
             if (convId) {
               setConversationId(convId);
@@ -152,7 +152,7 @@ const CommentForm: React.FC = () => {
 
       let originalBody = result.value as string;
       if (!originalBody.includes("CONVERSATION_ID:")) {
-        originalBody += `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${conversationId}</p>`;
+        originalBody + `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${conversationId}</p>`;
       }
 
       const subject = Office.context.mailbox.item.subject;
