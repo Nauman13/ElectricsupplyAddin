@@ -59,7 +59,7 @@ const CommentForm: React.FC = () => {
         item.body.getAsync(Office.CoercionType.Html, async (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
             const bodyContent = result.value as string;
-            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-=]+)/);
+            const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
             const convId = match?.[1] || (item as any).conversationId;
             if (convId) {
               setConversationId(convId);
@@ -135,19 +135,6 @@ const CommentForm: React.FC = () => {
       return resp.accessToken;
     }
   };
-  function normalizeConversationId(id: string): string {
-    // Remove any whitespace
-    let normalized = id.trim();
-
-    // Remove existing padding
-    normalized = normalized.replace(/=+$/, "");
-
-    // Force correct padding to multiple of 4
-    while (normalized.length % 4 !== 0) {
-      normalized += "=";
-    }
-    return normalized;
-  }
 
   // -------------------------
   // Email forward (Graph)
@@ -165,7 +152,7 @@ const CommentForm: React.FC = () => {
 
       let originalBody = result.value as string;
       if (!originalBody.includes("CONVERSATION_ID:")) {
-        originalBody + `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${conversationId}</p>`;
+        originalBody += `<p style="color:#fff;font-size:1px">CONVERSATION_ID:${conversationId}</p>`;
       }
 
       const subject = Office.context.mailbox.item.subject;
@@ -251,11 +238,8 @@ const CommentForm: React.FC = () => {
       const graphToken = await getGraphToken();
       const spToken = await getSharePointToken();
 
-      const emailIdValue = normalizeConversationId(id).replace(/'/g, "''");
-      const url =
-        `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items` +
-        `?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'` +
-        `&$orderby=createdDateTime asc`;
+      const emailIdValue = id.replace(/'/g, "''");
+      const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&$filter=fields/EmailID eq '${emailIdValue}'&$orderby=createdDateTime asc`;
 
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${graphToken}` },
@@ -346,7 +330,7 @@ const CommentForm: React.FC = () => {
 
     const fieldsData: any = {
       Title: "Email Comment",
-      EmailID: normalizeConversationId(conversationId),
+      EmailID: conversationId,
       Comment: plainComment,
       MentionedUsers: displayNames.join(", "),
       CreatedBy: Office.context.mailbox.userProfile.displayName,
