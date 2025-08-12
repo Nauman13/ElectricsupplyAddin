@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { MentionsInput, Mention } from "react-mentions";
 import { PublicClientApplication, AuthenticationResult } from "@azure/msal-browser";
 import { msalConfig } from "./msalConfig";
@@ -421,6 +421,14 @@ const CommentForm: React.FC = () => {
     }
   };
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const commentsEndRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to bottom whenever comments change and loading is done
+  useEffect(() => {
+    if (!loading && commentsEndRef.current) {
+      commentsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [commentHistory, loading]);
 
   return (
     <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
@@ -475,6 +483,7 @@ const CommentForm: React.FC = () => {
                 }}
               >
                 {c.CreatedBy?.charAt(0).toUpperCase()}
+                <div ref={commentsEndRef} style={{ height: 0 }}></div>
               </div>
 
               <div style={{ flex: 1 }}>
