@@ -539,7 +539,7 @@ const CommentForm: React.FC = () => {
             </div>
           ))
         ) : (
-          <div style={{ color: "#888" }}>No comments yet.</div>
+          <div style={{ color: "#888" }}>No comment yet.</div>
         )}
       </div>
 
