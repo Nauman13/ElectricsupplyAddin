@@ -42,6 +42,7 @@ const CommentForm: React.FC = () => {
 
   const commentsEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
   // Real-time comment polling
   useEffect(() => {
@@ -50,7 +51,7 @@ const CommentForm: React.FC = () => {
 
       const interval = setInterval(() => {
         fetchCommentsFromSharePoint();
-      }, 5000);
+      }, 30000);
 
       setPollingInterval(interval);
       return () => {
@@ -103,6 +104,7 @@ const CommentForm: React.FC = () => {
       @media (host-platform: win32) {
         .ms-Button { padding: 8px 12px !important; }
         .mentions-input { font-size: 13px !important; }
+        .comment-history { max-height: calc(100vh - 230px) !important; }
       }
     `;
       document.head.appendChild(style);
@@ -513,15 +515,27 @@ const CommentForm: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
+    <div
+      style={{
+        padding: "1rem",
+        fontFamily: "Segoe UI, sans-serif",
+        fontSize: "14px",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        position: "relative",
+      }}
+    >
+      {/* Comment history section */}
       <div
+        className="comment-history"
         style={{
+          flex: 1,
+          overflowY: "auto",
           marginBottom: "1rem",
           background: "#f9f9f9",
           padding: "10px",
           borderRadius: "6px",
-          maxHeight: "450px",
-          overflowY: "auto",
           position: "relative",
           minHeight: "100px",
         }}
@@ -532,7 +546,7 @@ const CommentForm: React.FC = () => {
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
-              height: "100px",
+              height: "100%",
             }}
           >
             <Spinner size={SpinnerSize.medium} label="Loading comments..." />
@@ -622,138 +636,161 @@ const CommentForm: React.FC = () => {
             </div>
           ))
         ) : (
-          <div style={{ color: "#888" }}>No comments yet.</div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              height: "100%",
+              color: "#888",
+            }}
+          >
+            No comments yet
+          </div>
         )}
         <div ref={commentsEndRef} />
       </div>
 
-      {/* Comment input */}
-      <div style={{ marginBottom: "10px", borderRadius: "10px" }}>
-        <MentionsInput
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Add internal comment..."
-          style={{
-            control: {
-              backgroundColor: "#fff",
-              fontSize: 14,
-              padding: "8px",
-              borderRadius: "10px",
-              border: "1px solid #ccc",
-              minHeight: "40px",
-              maxHeight: "60px",
-              overflowY: "auto",
-            },
-            input: {
-              margin: 0,
-              paddingLeft: "10px",
-              borderRadius: "10px",
-              outline: "none",
-              border: "none",
-            },
-            highlighter: {
-              overflow: "hidden",
-            },
-            suggestions: {
-              list: {
-                backgroundColor: "#fff",
-                border: "1px solid #ccc",
-                fontSize: 14,
-              },
-              item: {
-                padding: "5px 10px",
-                borderBottom: "1px solid #eee",
-                "&focused": {
-                  backgroundColor: "#e6f0ff",
-                },
-              },
-            },
-          }}
-        >
-          <Mention
-            trigger="@"
-            data={people}
-            displayTransform={(_id, display) => `@${display}`}
-            appendSpaceOnAdd
-            onAdd={(id: string) => {
-              if (!mentionedEmails.includes(id)) {
-                setMentionedEmails([...mentionedEmails, id]);
-              }
-            }}
-          />
-        </MentionsInput>
-      </div>
-
-      {/* Attachment and Send buttons */}
+      {/* Fixed position form */}
       <div
+        ref={formRef}
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginTop: "8px",
+          position: "sticky",
+          bottom: "0",
+          backgroundColor: "white",
+          padding: "15px 0",
+          borderTop: "1px solid #eaeaea",
+          zIndex: 100,
+          boxShadow: "0 -2px 10px rgba(0,0,0,0.1)",
         }}
       >
-        <div>
-          <button
-            onClick={triggerFileInput}
+        {/* Comment input */}
+        <div style={{ marginBottom: "10px" }}>
+          <MentionsInput
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Add internal comment..."
             style={{
-              display: "flex",
-              alignItems: "center",
-              background: "none",
-              border: "1px solid #ccc",
-              borderRadius: "5px",
-              padding: "8px 12px",
-              cursor: "pointer",
-              color: "#333",
+              control: {
+                backgroundColor: "#fff",
+                fontSize: 14,
+                padding: "8px",
+                borderRadius: "10px",
+                border: "1px solid #ccc",
+                minHeight: "40px",
+                maxHeight: "60px",
+                overflowY: "auto",
+              },
+              input: {
+                margin: 0,
+                paddingLeft: "10px",
+                borderRadius: "10px",
+                outline: "none",
+                border: "none",
+              },
+              highlighter: {
+                overflow: "hidden",
+              },
+              suggestions: {
+                list: {
+                  backgroundColor: "#fff",
+                  border: "1px solid #ccc",
+                  fontSize: 14,
+                },
+                item: {
+                  padding: "5px 10px",
+                  borderBottom: "1px solid #eee",
+                  "&focused": {
+                    backgroundColor: "#e6f0ff",
+                  },
+                },
+              },
             }}
           >
-            <Icon iconName="Attach" style={{ marginRight: "6px" }} />
-            Attachment
-          </button>
-          <input
-            type="file"
-            multiple
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            style={{ display: "none" }}
-          />
-          {selectedFiles.length > 0 && (
-            <div
-              style={{
-                fontSize: "12px",
-                marginTop: "4px",
-                color: "#666",
+            <Mention
+              trigger="@"
+              data={people}
+              displayTransform={(_id, display) => `@${display}`}
+              appendSpaceOnAdd
+              onAdd={(id: string) => {
+                if (!mentionedEmails.includes(id)) {
+                  setMentionedEmails([...mentionedEmails, id]);
+                }
               }}
-            >
-              {selectedFiles.length} file{selectedFiles.length > 1 ? "s" : ""} selected
-            </div>
-          )}
+            />
+          </MentionsInput>
         </div>
 
-        <button
-          onClick={handleSaveAndShare}
-          disabled={sending || !comment.trim()}
+        {/* Attachment and Send buttons */}
+        <div
           style={{
-            backgroundColor: sending || !comment.trim() ? "#a0a0a0" : "#0078D4",
-            color: "#fff",
-            border: "none",
-            padding: "8px 16px",
-            borderRadius: "5px",
             display: "flex",
+            justifyContent: "space-between",
             alignItems: "center",
-            gap: "8px",
-            cursor: sending || !comment.trim() ? "not-allowed" : "pointer",
           }}
         >
-          {sending ? (
-            <>
-              <Spinner size={SpinnerSize.xSmall} />
-              Sending...
-            </>
-          ) : (
-            "Send"
-          )}
-        </button>
+          <div>
+            <button
+              onClick={triggerFileInput}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                background: "none",
+                border: "1px solid #ccc",
+                borderRadius: "5px",
+                padding: "8px 12px",
+                cursor: "pointer",
+                color: "#333",
+              }}
+            >
+              <Icon iconName="Attach" style={{ marginRight: "6px" }} />
+              Attachment
+            </button>
+            <input
+              type="file"
+              multiple
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              style={{ display: "none" }}
+            />
+            {selectedFiles.length > 0 && (
+              <div
+                style={{
+                  fontSize: "12px",
+                  marginTop: "4px",
+                  color: "#666",
+                }}
+              >
+                {selectedFiles.length} file{selectedFiles.length > 1 ? "s" : ""} selected
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={handleSaveAndShare}
+            disabled={sending || !comment.trim()}
+            style={{
+              backgroundColor: sending || !comment.trim() ? "#a0a0a0" : "#0078D4",
+              color: "#fff",
+              border: "none",
+              padding: "8px 16px",
+              borderRadius: "5px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              cursor: sending || !comment.trim() ? "not-allowed" : "pointer",
+            }}
+          >
+            {sending ? (
+              <>
+                <Spinner size={SpinnerSize.xSmall} />
+                Sending...
+              </>
+            ) : (
+              "Send"
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
