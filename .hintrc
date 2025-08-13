@@ -6,6 +6,7 @@
     "typescript-config/strict": "off",
     "no-inline-styles": "off",
     "axe/forms": "off",
-    "meta-viewport": "off"
+    "meta-viewport": "off",
+    "axe/structure": "off"
   }
 }

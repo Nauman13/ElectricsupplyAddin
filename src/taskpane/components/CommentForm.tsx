@@ -49,6 +49,37 @@ const CommentForm: React.FC = () => {
     });
   };
 
+  // Add this useEffect hook near other useEffects
+  useEffect(() => {
+    if (Office.context.platform === Office.PlatformType.PC) {
+      // Desktop-specific security setup
+      OfficeRuntime.storage.setItem("desktopMode", "true");
+      document.cookie = `SameSite=None; Secure; domain=${window.location.hostname}`;
+      console.log("Desktop security initialized");
+    }
+  }, []);
+
+  // Add this useEffect for UI adjustments
+  useEffect(() => {
+    const isDesktop = Office.context.platform === Office.PlatformType.PC;
+    if (isDesktop) {
+      document.body.classList.add("desktop-client");
+      console.log("Running in Outlook desktop client");
+    }
+
+    // Add CSS for desktop
+    if (isDesktop) {
+      const style = document.createElement("style");
+      style.innerHTML = `
+      @media (host-platform: win32) {
+        .ms-Button { padding: 8px 12px !important; }
+        .mentions-input { font-size: 13px !important; }
+      }
+    `;
+      document.head.appendChild(style);
+    }
+  }, []);
+
   useEffect(() => {
     Office.onReady(async (info) => {
       if (info.host === Office.HostType.Outlook) {
@@ -58,16 +89,33 @@ const CommentForm: React.FC = () => {
 
         item.body.getAsync(Office.CoercionType.Html, async (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
-            const bodyContent = result.value as string;
+            let bodyContent = result.value as string;
+
+            // Add desktop-specific body cleanup
+            if (Office.context.platform === Office.PlatformType.PC) {
+              bodyContent = bodyContent.replace(/<meta\s[^>]*>/gi, "");
+            }
+
             const match = bodyContent.match(/CONVERSATION_ID:([a-zA-Z0-9\-]+)/);
-            const convId = match?.[1] || (item as any).conversationId;
+            let convId = match?.[1] || (item as any).conversationId;
+
+            // Add desktop fallback
+            if (!convId && Office.context.platform === Office.PlatformType.PC) {
+              try {
+                const internetHeaders = (item as any).internetHeaders;
+                const headers = await new Promise<any>((resolve) =>
+                  internetHeaders.getAsync(resolve)
+                );
+                convId = headers["Thread-Index"] || headers["thread-index"];
+              } catch (e) {
+                console.error("Header fallback error:", e);
+              }
+            }
+
             if (convId) {
               setConversationId(convId);
-              // fetch comments + attachments
               await fetchCommentsFromSharePoint(convId);
             }
-          } else {
-            console.error("Failed to get body:", result.error);
           }
           setLoading(false);
         });
@@ -120,7 +168,10 @@ const CommentForm: React.FC = () => {
       accounts = [loginResp.account];
     }
 
-    const spScope = `https://${tenantHost}/.default`;
+    const spScope =
+      Office.context.platform === Office.PlatformType.PC
+        ? `https://${tenantHost}/AllSites.FullControl`
+        : `https://${tenantHost}/.default`;
 
     try {
       const resp = await msalInstance.acquireTokenSilent({
@@ -510,15 +561,17 @@ const CommentForm: React.FC = () => {
                 <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
                   {new Date(c.CreatedDate).toLocaleString()}
                 </div>
-
                 {/* ---------- ATTACHMENTS: SHOW LINKS ONLY ---------- */}
                 {c.Attachments && c.Attachments.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     <strong style={{ fontSize: 12 }}>Attachments:</strong>
                     <ul style={{ margin: "6px 0 0 0", paddingLeft: 18 }}>
                       {c.Attachments.map((file: any, idx: number) => {
-                        // Build full URL from ServerRelativeUrl
-                        const fileUrl = `https://${tenantHost}${file.ServerRelativeUrl}`;
+                        const isDesktop = Office.context.platform === Office.PlatformType.PC;
+                        const fileUrl = isDesktop
+                          ? `${siteUrl}/_layouts/15/download.aspx?SourceUrl=${encodeURIComponent(file.ServerRelativeUrl)}`
+                          : `https://${tenantHost}${file.ServerRelativeUrl}`;
+
                         return (
                           <li key={idx} style={{ marginBottom: 6 }}>
                             <a

@@ -34,7 +34,7 @@
       </DesktopSettings>
     </Form>
   </FormSettings>
-  <Permissions>ReadWriteItem</Permissions>
+  <Permissions>ReadWriteMailbox</Permissions>
   <Rule xsi:type="RuleCollection" Mode="Or">
     <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read"/>
   </Rule>
@@ -52,6 +52,8 @@
       <Hosts>
         <Host xsi:type="MailHost">
           <DesktopFormFactor>
+            <SupportsSharedFolders>true</SupportsSharedFolders>
+             <RequestedHeight>450</RequestedHeight>
             <FunctionFile resid="Commands.Url"/>
             <!-- Read Mode: Forward to TransitChat -->
             <ExtensionPoint xsi:type="MessageReadCommandSurface">
@@ -90,6 +92,7 @@
         <bt:Urls>
           <bt:Url id="Commands.Url" DefaultValue="https://electricsupply-addin.vercel.app/commands.html"/>
           <bt:Url id="Taskpane.Url" DefaultValue="https://electricsupply-addin.vercel.app/taskpane.html"/>
+          <bt:Url id="MessageReadTaskpaneUrl" DefaultValue="https://electricsupply-addin.vercel.app?desktop=true"/>
         </bt:Urls>
 
         <bt:ShortStrings>

@@ -1,4 +1,4 @@
-import { Configuration } from "@azure/msal-browser";
+import { Configuration, BrowserUtils } from "@azure/msal-browser";
 
 export const msalConfig: Configuration = {
   auth: {
@@ -9,4 +9,11 @@ export const msalConfig: Configuration = {
   cache: {
     cacheLocation: "localStorage",
   },
+  system: {
+    iframeHashTimeout: 10000, // Increase for desktop
+    navigateFrameWait: 500,
+    windowHashTimeout: 10000,
+  },
 };
+
+// Initialization handler removed: setInteractionInProgress does not exist on BrowserUtils.
