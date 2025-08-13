@@ -517,9 +517,6 @@ const CommentForm: React.FC = () => {
   return (
     <div
       style={{
-        padding: "1rem",
-        fontFamily: "Segoe UI, sans-serif",
-        fontSize: "14px",
         display: "flex",
         flexDirection: "column",
         height: "100%",
@@ -536,8 +533,6 @@ const CommentForm: React.FC = () => {
           background: "#f9f9f9",
           padding: "10px",
           borderRadius: "6px",
-          position: "relative",
-          minHeight: "100px",
         }}
       >
         {loading ? (
@@ -655,12 +650,12 @@ const CommentForm: React.FC = () => {
       <div
         ref={formRef}
         style={{
-          position: "sticky",
-          bottom: "0",
+          position: "sticky", // Keeps it fixed at the bottom
+          bottom: "0", // Anchors to the bottom
           backgroundColor: "white",
           padding: "15px 0",
           borderTop: "1px solid #eaeaea",
-          zIndex: 100,
+          zIndex: 100, // Ensures it stays on top
           boxShadow: "0 -2px 10px rgba(0,0,0,0.1)",
         }}
       >
