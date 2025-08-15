@@ -122,6 +122,19 @@ const CommentForm: React.FC = () => {
       }
     });
   }, []);
+  // Auto-refresh comments every 30 seconds
+  useEffect(() => {
+    if (conversationId) {
+      fetchCommentsFromSharePoint(conversationId);
+
+      const interval = setInterval(() => {
+        fetchCommentsFromSharePoint(conversationId);
+      }, 30000);
+
+      return () => clearInterval(interval);
+    }
+    return undefined; // ✅ always returns something
+  }, [conversationId]);
 
   useEffect(() => {
     fetchUsers();
