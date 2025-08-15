@@ -4,7 +4,6 @@ import { MentionsInput, Mention } from "react-mentions";
 import { PublicClientApplication, AuthenticationResult } from "@azure/msal-browser";
 import { msalConfig } from "./msalConfig";
 import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner";
-import { Icon } from "@fluentui/react/lib/Icon";
 
 // SharePoint Config
 const siteId = "8314c8ba-c25a-4a02-bf25-d6238949ac8f";
@@ -38,35 +37,6 @@ const CommentForm: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [sending, setSending] = useState<boolean>(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
-
-  const commentsEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const formRef = useRef<HTMLDivElement>(null);
-
-  // Real-time comment polling
-  useEffect(() => {
-    if (conversationId) {
-      if (pollingInterval) clearInterval(pollingInterval);
-
-      const interval = setInterval(() => {
-        fetchCommentsFromSharePoint();
-      }, 30000);
-
-      setPollingInterval(interval);
-      return () => {
-        if (interval) clearInterval(interval);
-      };
-    }
-    return undefined;
-  }, [conversationId]);
-
-  // Scroll to bottom when comments update
-  useEffect(() => {
-    if (!loading && commentsEndRef.current) {
-      commentsEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [commentHistory, loading]);
 
   // Wait until Office item is available
   const waitForMailboxItem = (): Promise<void> => {
@@ -79,7 +49,7 @@ const CommentForm: React.FC = () => {
     });
   };
 
-  // Desktop-specific setup
+  // Add this useEffect hook near other useEffects
   useEffect(() => {
     if (Office.context.platform === Office.PlatformType.PC) {
       // Desktop-specific security setup
@@ -89,7 +59,7 @@ const CommentForm: React.FC = () => {
     }
   }, []);
 
-  // UI adjustments for desktop
+  // Add this useEffect for UI adjustments
   useEffect(() => {
     const isDesktop = Office.context.platform === Office.PlatformType.PC;
     if (isDesktop) {
@@ -104,14 +74,12 @@ const CommentForm: React.FC = () => {
       @media (host-platform: win32) {
         .ms-Button { padding: 8px 12px !important; }
         .mentions-input { font-size: 13px !important; }
-        .comment-history { max-height: calc(100vh - 230px) !important; }
       }
     `;
       document.head.appendChild(style);
     }
   }, []);
 
-  // Initialize Office and fetch comments
   useEffect(() => {
     Office.onReady(async (info) => {
       if (info.host === Office.HostType.Outlook) {
@@ -155,7 +123,6 @@ const CommentForm: React.FC = () => {
     });
   }, []);
 
-  // Fetch users for mentions
   useEffect(() => {
     fetchUsers();
   }, []);
@@ -457,6 +424,7 @@ const CommentForm: React.FC = () => {
           headers: {
             Authorization: `Bearer ${spToken}`,
             Accept: "application/json;odata=verbose",
+            // Do not set Content-Type for binary body in many browsers; let fetch handle it.
           },
           body: arrayBuffer,
         });
@@ -503,36 +471,28 @@ const CommentForm: React.FC = () => {
       setSending(false);
     }
   };
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const commentsEndRef = useRef<HTMLDivElement>(null);
 
-  const triggerFileInput = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
+  // Scroll to bottom whenever comments change and loading is done
+  useEffect(() => {
+    if (!loading && commentsEndRef.current) {
+      commentsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSelectedFiles(Array.from(e.target.files || []));
-  };
+  }, [commentHistory, loading]);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        position: "relative",
-      }}
-    >
-      {/* Comment history section */}
+    <div style={{ padding: "1rem", fontFamily: "Segoe UI, sans-serif", fontSize: "14px" }}>
       <div
-        className="comment-history"
         style={{
-          flex: 1,
-          overflowY: "auto",
           marginBottom: "1rem",
           background: "#f9f9f9",
           padding: "10px",
           borderRadius: "6px",
+          maxHeight: "450px",
+          overflowY: "auto",
+          position: "relative",
+          minHeight: "100px",
         }}
       >
         {loading ? (
@@ -541,7 +501,7 @@ const CommentForm: React.FC = () => {
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
-              height: "100%",
+              height: "100px",
             }}
           >
             <Spinner size={SpinnerSize.medium} label="Loading comments..." />
@@ -559,7 +519,7 @@ const CommentForm: React.FC = () => {
                 backgroundColor: "#f4f6f9",
               }}
             >
-              {/* User initial */}
+              {/* Initial */}
               <div
                 style={{
                   width: 40,
@@ -574,6 +534,7 @@ const CommentForm: React.FC = () => {
                 }}
               >
                 {c.CreatedBy?.charAt(0).toUpperCase()}
+                <div ref={commentsEndRef} style={{ height: 0 }}></div>
               </div>
 
               <div style={{ flex: 1 }}>
@@ -600,7 +561,7 @@ const CommentForm: React.FC = () => {
                 <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
                   {new Date(c.CreatedDate).toLocaleString()}
                 </div>
-                {/* Attachments */}
+                {/* ---------- ATTACHMENTS: SHOW LINKS ONLY ---------- */}
                 {c.Attachments && c.Attachments.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     <strong style={{ fontSize: 12 }}>Attachments:</strong>
@@ -631,162 +592,97 @@ const CommentForm: React.FC = () => {
             </div>
           ))
         ) : (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              height: "100%",
-              color: "#888",
-            }}
-          >
-            No comments yet
-          </div>
+          <div style={{ color: "#888" }}>No comments yet.</div>
         )}
-        <div ref={commentsEndRef} />
       </div>
 
-      {/* Fixed position form */}
-      <div
-        ref={formRef}
-        style={{
-          position: "sticky", // Keeps it fixed at the bottom
-          bottom: "0", // Anchors to the bottom
-          backgroundColor: "white",
-          padding: "15px 0",
-          borderTop: "1px solid #eaeaea",
-          zIndex: 100, // Ensures it stays on top
-          boxShadow: "0 -2px 10px rgba(0,0,0,0.1)",
-        }}
-      >
-        {/* Comment input */}
-        <div style={{ marginBottom: "10px" }}>
-          <MentionsInput
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            placeholder="Add internal comment..."
-            style={{
-              control: {
-                backgroundColor: "#fff",
-                fontSize: 14,
-                padding: "8px",
-                borderRadius: "10px",
-                border: "1px solid #ccc",
-                minHeight: "40px",
-                maxHeight: "60px",
-                overflowY: "auto",
-              },
-              input: {
-                margin: 0,
-                paddingLeft: "10px",
-                borderRadius: "10px",
-                outline: "none",
-                border: "none",
-              },
-              highlighter: {
-                overflow: "hidden",
-              },
-              suggestions: {
-                list: {
-                  backgroundColor: "#fff",
-                  border: "1px solid #ccc",
-                  fontSize: 14,
-                },
-                item: {
-                  padding: "5px 10px",
-                  borderBottom: "1px solid #eee",
-                  "&focused": {
-                    backgroundColor: "#e6f0ff",
-                  },
-                },
-              },
-            }}
-          >
-            <Mention
-              trigger="@"
-              data={people}
-              displayTransform={(_id, display) => `@${display}`}
-              appendSpaceOnAdd
-              onAdd={(id: string) => {
-                if (!mentionedEmails.includes(id)) {
-                  setMentionedEmails([...mentionedEmails, id]);
-                }
-              }}
-            />
-          </MentionsInput>
-        </div>
-
-        {/* Attachment and Send buttons */}
-        <div
+      <div style={{ marginBottom: "10px", borderRadius: "10px" }}>
+        <MentionsInput
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Add internal comment..."
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
+            control: {
+              backgroundColor: "#fff",
+              fontSize: 14,
+              padding: "8px",
+              borderRadius: "10px",
+              border: "1px solid #ccc",
+              minHeight: "40px",
+              maxHeight: "60px",
+              overflowY: "auto",
+            },
+            input: {
+              margin: 0,
+              paddingLeft: "10px",
+              borderRadius: "10px",
+              outline: "none",
+              border: "none",
+            },
+            highlighter: {
+              overflow: "hidden",
+            },
+            suggestions: {
+              list: {
+                backgroundColor: "#fff",
+                border: "1px solid #ccc",
+                fontSize: 14,
+              },
+              item: {
+                padding: "5px 10px",
+                borderBottom: "1px solid #eee",
+                "&focused": {
+                  backgroundColor: "#e6f0ff",
+                },
+              },
+            },
           }}
         >
-          <div>
-            <button
-              onClick={triggerFileInput}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                background: "none",
-                border: "1px solid #ccc",
-                borderRadius: "5px",
-                padding: "8px 12px",
-                cursor: "pointer",
-                color: "#333",
-              }}
-            >
-              <Icon iconName="Attach" style={{ marginRight: "6px" }} />
-              Attachment
-            </button>
-            <input
-              type="file"
-              multiple
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              style={{ display: "none" }}
-            />
-            {selectedFiles.length > 0 && (
-              <div
-                style={{
-                  fontSize: "12px",
-                  marginTop: "4px",
-                  color: "#666",
-                }}
-              >
-                {selectedFiles.length} file{selectedFiles.length > 1 ? "s" : ""} selected
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={handleSaveAndShare}
-            disabled={sending || !comment.trim()}
-            style={{
-              backgroundColor: sending || !comment.trim() ? "#a0a0a0" : "#0078D4",
-              color: "#fff",
-              border: "none",
-              padding: "8px 16px",
-              borderRadius: "5px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              cursor: sending || !comment.trim() ? "not-allowed" : "pointer",
+          <Mention
+            trigger="@"
+            data={people}
+            displayTransform={(_id, display) => `@${display}`}
+            appendSpaceOnAdd
+            onAdd={(id: string) => {
+              if (!mentionedEmails.includes(id)) {
+                setMentionedEmails([...mentionedEmails, id]);
+              }
             }}
-          >
-            {sending ? (
-              <>
-                <Spinner size={SpinnerSize.xSmall} />
-                Sending...
-              </>
-            ) : (
-              "Send"
-            )}
-          </button>
-        </div>
+          />
+        </MentionsInput>
+        <input
+          type="file"
+          multiple
+          ref={fileInputRef}
+          onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
+        />
       </div>
+
+      <button
+        onClick={handleSaveAndShare}
+        disabled={sending}
+        style={{
+          backgroundColor: sending ? "#a0a0a0" : "#0078D4",
+          color: "#fff",
+          border: "none",
+          padding: "10px 16px",
+          borderRadius: "5px",
+          float: "right",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          cursor: sending ? "not-allowed" : "pointer",
+        }}
+      >
+        {sending ? (
+          <>
+            <Spinner size={SpinnerSize.xSmall} />
+            Sending...
+          </>
+        ) : (
+          "Send"
+        )}
+      </button>
     </div>
   );
 };
