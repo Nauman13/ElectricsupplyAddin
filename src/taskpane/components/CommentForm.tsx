@@ -686,7 +686,7 @@ const CommentForm: React.FC = () => {
               justifyContent: "space-between",
               alignItems: "center",
               gap: "10px",
-              margin: "0 10px",
+              margin: "-6px",
             }}
           >
             <input
@@ -698,8 +698,6 @@ const CommentForm: React.FC = () => {
                 flex: 1,
                 maxWidth: "calc(100% - 120px)",
                 padding: "8px",
-                border: "1px solid #ccc",
-                borderRadius: "5px",
               }}
             />
 
@@ -716,7 +714,7 @@ const CommentForm: React.FC = () => {
                 alignItems: "center",
                 gap: "8px",
                 cursor: sending ? "not-allowed" : "pointer",
-                minWidth: "100px",
+                minWidth: "80px",
                 justifyContent: "center",
               }}
             >
