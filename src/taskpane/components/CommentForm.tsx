@@ -596,93 +596,111 @@ const CommentForm: React.FC = () => {
         )}
       </div>
 
-      <div style={{ marginBottom: "10px", borderRadius: "10px" }}>
-        <MentionsInput
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Add internal comment..."
-          style={{
-            control: {
-              backgroundColor: "#fff",
-              fontSize: 14,
-              padding: "8px",
-              borderRadius: "10px",
-              border: "1px solid #ccc",
-              minHeight: "40px",
-              maxHeight: "60px",
-              overflowY: "auto",
-            },
-            input: {
-              margin: 0,
-              paddingLeft: "10px",
-              borderRadius: "10px",
-              outline: "none",
-              border: "none",
-            },
-            highlighter: {
-              overflow: "hidden",
-            },
-            suggestions: {
-              list: {
-                backgroundColor: "#fff",
-                border: "1px solid #ccc",
-                fontSize: 14,
-              },
-              item: {
-                padding: "5px 10px",
-                borderBottom: "1px solid #eee",
-                "&focused": {
-                  backgroundColor: "#e6f0ff",
-                },
-              },
-            },
-          }}
-        >
-          <Mention
-            trigger="@"
-            data={people}
-            displayTransform={(_id, display) => `@${display}`}
-            appendSpaceOnAdd
-            onAdd={(id: string) => {
-              if (!mentionedEmails.includes(id)) {
-                setMentionedEmails([...mentionedEmails, id]);
-              }
-            }}
-          />
-        </MentionsInput>
-        <input
-          type="file"
-          multiple
-          ref={fileInputRef}
-          onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
-        />
-      </div>
-
-      <button
-        onClick={handleSaveAndShare}
-        disabled={sending}
+      <div
         style={{
-          backgroundColor: sending ? "#a0a0a0" : "#0078D4",
-          color: "#fff",
-          border: "none",
-          padding: "10px 16px",
-          borderRadius: "5px",
-          float: "right",
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          padding: "10px",
+          backgroundColor: "#ffffff",
+          borderTop: "1px solid #ccc",
+          zIndex: 1000,
           display: "flex",
           alignItems: "center",
-          gap: "8px",
-          cursor: sending ? "not-allowed" : "pointer",
+          gap: "10px",
         }}
       >
-        {sending ? (
-          <>
-            <Spinner size={SpinnerSize.xSmall} />
-            Sending...
-          </>
-        ) : (
-          "Send"
-        )}
-      </button>
+        <div style={{ flex: 1, marginBottom: "10px", borderRadius: "10px" }}>
+          <MentionsInput
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Add internal comment..."
+            style={{
+              control: {
+                backgroundColor: "#fff",
+                fontSize: 14,
+                padding: "8px",
+                borderRadius: "10px",
+                border: "1px solid #ccc",
+                minHeight: "40px",
+                maxHeight: "60px",
+                overflowY: "auto",
+              },
+              input: {
+                margin: 0,
+                paddingLeft: "10px",
+                borderRadius: "10px",
+                outline: "none",
+                border: "none",
+              },
+              highlighter: {
+                overflow: "hidden",
+              },
+              suggestions: {
+                list: {
+                  backgroundColor: "#fff",
+                  border: "1px solid #ccc",
+                  fontSize: 14,
+                },
+                item: {
+                  padding: "5px 10px",
+                  borderBottom: "1px solid #eee",
+                  "&focused": {
+                    backgroundColor: "#e6f0ff",
+                  },
+                },
+              },
+            }}
+          >
+            <Mention
+              trigger="@"
+              data={people}
+              displayTransform={(_id, display) => `@${display}`}
+              appendSpaceOnAdd
+              onAdd={(id: string) => {
+                if (!mentionedEmails.includes(id)) {
+                  setMentionedEmails([...mentionedEmails, id]);
+                }
+              }}
+            />
+          </MentionsInput>
+          <input
+            type="file"
+            multiple
+            ref={fileInputRef}
+            onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
+            style={{ marginTop: "8px" }}
+          />
+        </div>
+
+        <button
+          onClick={handleSaveAndShare}
+          disabled={sending}
+          style={{
+            backgroundColor: sending ? "#a0a0a0" : "#0078D4",
+            color: "#fff",
+            border: "none",
+            padding: "10px 16px",
+            borderRadius: "5px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            cursor: sending ? "not-allowed" : "pointer",
+            height: "fit-content",
+            alignSelf: "flex-end",
+          }}
+        >
+          {sending ? (
+            <>
+              <Spinner size={SpinnerSize.xSmall} />
+              Sending...
+            </>
+          ) : (
+            "Send"
+          )}
+        </button>
+      </div>
     </div>
   );
 };
